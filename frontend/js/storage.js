@@ -320,5 +320,29 @@ STORAGE.prototype.exists = function(name) {
 	return false;
 };
 
+/**
+ * Apply backdrop blur to an element based on settings
+ * @param {HTMLElement} element - The backdrop image element
+ * @param {string} settingKey - The setting key ('backdropBlurHome' or 'backdropBlurDetail')
+ * @param {number} maxBlur - Maximum blur in pixels (20 for home, 15 for detail)
+ */
+STORAGE.prototype.applyBackdropBlur = function(element, settingKey, maxBlur) {
+	if (!element) return;
+	
+	var settingsStr = this.get('jellyfin_settings');
+	if (!settingsStr) return;
+	
+	try {
+		var settings = JSON.parse(settingsStr);
+		var blurAmount = settings[settingKey] !== undefined ? settings[settingKey] : 3;
+		var blurPx = blurAmount * (maxBlur / 5); // Maps 0-5 to 0-maxBlur
+		element.style.filter = 'blur(' + blurPx + 'px)';
+	} catch (e) {
+		// Fallback to default blur
+		var defaultBlurPx = 3 * (maxBlur / 5);
+		element.style.filter = 'blur(' + defaultBlurPx + 'px)';
+	}
+};
+
 // Initialize global storage instance after all prototypes are defined
 var storage = new STORAGE();
