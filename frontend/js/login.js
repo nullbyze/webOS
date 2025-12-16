@@ -62,6 +62,20 @@ var LoginController = (function() {
             cancelQuickConnectBtn: document.getElementById('cancelQuickConnectBtn'),
             
             backToServerBtn: document.getElementById('backToServerBtn'),
+            addAccountBtn: document.getElementById('addAccountBtn'),
+            
+            manualLoginSection: document.getElementById('manualLoginSection'),
+            useManualPasswordBtn: document.getElementById('useManualPasswordBtn'),
+            useManualQuickConnectBtn: document.getElementById('useManualQuickConnectBtn'),
+            manualPasswordForm: document.getElementById('manualPasswordForm'),
+            manualUsername: document.getElementById('manualUsername'),
+            manualPassword: document.getElementById('manualPassword'),
+            manualLoginBtn: document.getElementById('manualLoginBtn'),
+            cancelManualLoginBtn: document.getElementById('cancelManualLoginBtn'),
+            manualQuickConnectForm: document.getElementById('manualQuickConnectForm'),
+            manualQuickConnectCode: document.getElementById('manualQuickConnectCode'),
+            manualQuickConnectStatus: document.getElementById('manualQuickConnectStatus'),
+            cancelManualQuickConnectBtn: document.getElementById('cancelManualQuickConnectBtn'),
             
             errorMessage: document.getElementById('errorMessage'),
             statusMessage: document.getElementById('statusMessage'),
@@ -80,6 +94,31 @@ var LoginController = (function() {
         if (elements.serverUrlInput) {
             elements.serverUrlInput.addEventListener('keydown', function(e) {
                 if (e.keyCode === KeyCodes.ENTER) handleConnect();
+            });
+        }
+        
+        // Add Account button
+        if (elements.addAccountBtn) {
+            elements.addAccountBtn.addEventListener('click', showManualLoginForm);
+        }
+        if (elements.useManualPasswordBtn) {
+            elements.useManualPasswordBtn.addEventListener('click', showManualPasswordForm);
+        }
+        if (elements.useManualQuickConnectBtn) {
+            elements.useManualQuickConnectBtn.addEventListener('click', showManualQuickConnectForm);
+        }
+        if (elements.manualLoginBtn) {
+            elements.manualLoginBtn.addEventListener('click', handleManualLogin);
+        }
+        if (elements.cancelManualLoginBtn) {
+            elements.cancelManualLoginBtn.addEventListener('click', cancelManualLogin);
+        }
+        if (elements.cancelManualQuickConnectBtn) {
+            elements.cancelManualQuickConnectBtn.addEventListener('click', cancelManualLogin);
+        }
+        if (elements.manualPassword) {
+            elements.manualPassword.addEventListener('keydown', function(e) {
+                if (e.keyCode === KeyCodes.ENTER) handleManualLogin();
             });
         }
         
@@ -118,7 +157,107 @@ var LoginController = (function() {
             }, UI_TRANSITION_DELAY_MS);
             return true;
         }
+        
+        // Check for auto-login setting
+        var settings = storage.get('jellyfin_settings');
+        if (settings && settings.autoLogin) {
+            var lastLogin = storage.get('last_login');
+            if (lastLogin && lastLogin.serverAddress && lastLogin.username) {
+                JellyfinAPI.Logger.info('Auto-login enabled, attempting to login as:', lastLogin.username);
+                attemptAutoLogin(lastLogin);
+                return true;
+            }
+        }
+        
         return false;
+    }
+    
+    function attemptAutoLogin(lastLogin) {
+        showStatus('Auto-login: connecting to ' + (lastLogin.serverName || 'server') + '...', 'info');
+        
+        // Connect to server first
+        JellyfinAPI.getPublicSystemInfo(lastLogin.serverAddress, function(err, systemInfo) {
+            if (err) {
+                JellyfinAPI.Logger.error('Auto-login failed: cannot connect to server');
+                showError('Auto-login failed: cannot connect to server');
+                clearAutoLoginData();
+                setTimeout(function() {
+                    checkLastServer();
+                }, 1000);
+                return;
+            }
+            
+            connectedServer = {
+                address: lastLogin.serverAddress,
+                name: systemInfo.ServerName || lastLogin.serverName,
+                id: systemInfo.Id
+            };
+            
+            // Get public users to find the user
+            JellyfinAPI.getPublicUsers(lastLogin.serverAddress, function(err, users) {
+                if (err || !users || users.length === 0) {
+                    JellyfinAPI.Logger.error('Auto-login failed: cannot get users');
+                    showError('Auto-login failed: cannot get users');
+                    clearAutoLoginData();
+                    setTimeout(function() {
+                        checkLastServer();
+                    }, 1000);
+                    return;
+                }
+                
+                // Find the user
+                var user = users.find(function(u) {
+                    return u.Name === lastLogin.username;
+                });
+                
+                if (!user) {
+                    JellyfinAPI.Logger.error('Auto-login failed: user not found');
+                    showError('Auto-login failed: user not found');
+                    clearAutoLoginData();
+                    setTimeout(function() {
+                        checkLastServer();
+                    }, 1000);
+                    return;
+                }
+                
+                selectedUser = user;
+                
+                // Attempt login with empty password (for passwordless users)
+                showStatus('Auto-login: logging in as ' + user.Name + '...', 'info');
+                
+                JellyfinAPI.authenticateByName(lastLogin.serverAddress, user.Name, '', function(err, authData) {
+                    if (err || !authData || !authData.AccessToken) {
+                        // Auto-login failed, show normal login
+                        JellyfinAPI.Logger.warn('Auto-login failed: requires password or invalid credentials');
+                        showError('Auto-login failed: password required. Please login manually.');
+                        clearAutoLoginData();
+                        setTimeout(function() {
+                            // Show user selection for manual login
+                            connectedServer = {
+                                address: lastLogin.serverAddress,
+                                name: systemInfo.ServerName || lastLogin.serverName,
+                                id: systemInfo.Id
+                            };
+                            publicUsers = users;
+                            showUserSelection();
+                        }, 1500);
+                        return;
+                    }
+                    
+                    showStatus('Auto-login successful! Welcome, ' + authData.User.Name + '!', 'success');
+                    JellyfinAPI.Logger.success('Auto-login successful');
+                    
+                    setTimeout(function() {
+                        window.location.href = 'browse.html';
+                    }, LOGIN_SUCCESS_DELAY_MS);
+                });
+            });
+        });
+    }
+    
+    function clearAutoLoginData() {
+        // Clear auto-login data if it fails
+        storage.remove('last_login');
     }
 
     function checkLastServer() {
@@ -267,7 +406,7 @@ var LoginController = (function() {
         JellyfinAPI.testServer(serverUrl, function(err, serverInfo) {
             if (elements.connectBtn) {
                 elements.connectBtn.disabled = false;
-                elements.connectBtn.textContent = 'Test Connection';
+                elements.connectBtn.textContent = 'Connect';
             }
             
             if (err) {
@@ -301,12 +440,17 @@ var LoginController = (function() {
             }
             
             if (!users || users.length === 0) {
-                JellyfinAPI.Logger.warn('No users found on server');
-                showError('No users found on this server');
-                return;
+                JellyfinAPI.Logger.warn('No public users found on server');
+                publicUsers = [];
+                // Show toaster message
+                showStatus('No public users found. Use "Add Account" to login manually.', 'info');
+                // Auto-hide after 4 seconds
+                setTimeout(function() {
+                    clearStatus();
+                }, 4000);
+            } else {
+                publicUsers = users;
             }
-            
-            publicUsers = users;
             
             // Hide server selection
             if (elements.manualServerSection) {
@@ -316,8 +460,8 @@ var LoginController = (function() {
                 elements.discoveredServersSection.style.display = 'none';
             }
             
-            // Show user selection
-            renderUserRow(users);
+            // Show user selection (even if empty)
+            renderUserRow(publicUsers);
             if (elements.userSelection) {
                 elements.userSelection.style.display = 'block';
             }
@@ -332,7 +476,12 @@ var LoginController = (function() {
         elements.userRow.innerHTML = '';
         
         if (users.length === 0) {
-            elements.userRow.innerHTML = '<div class="user-card"><div class="user-name">No users found</div></div>';
+            // Leave empty and focus Add Account button
+            if (elements.addAccountBtn) {
+                setTimeout(function() {
+                    elements.addAccountBtn.focus();
+                }, FOCUS_DELAY_MS);
+            }
             return;
         }
         
@@ -423,11 +572,347 @@ var LoginController = (function() {
         showPasswordForm();
     }
 
+    function showManualLoginForm() {
+        if (!connectedServer) {
+            showError('No server connected');
+            return;
+        }
+        
+        // Hide user selection
+        if (elements.userSelection) {
+            elements.userSelection.style.display = 'none';
+        }
+        
+        // Show manual login section
+        if (elements.manualLoginSection) {
+            elements.manualLoginSection.style.display = 'block';
+        }
+        
+        // Show both login method buttons
+        if (elements.useManualPasswordBtn) {
+            elements.useManualPasswordBtn.style.display = 'inline-block';
+        }
+        if (elements.useManualQuickConnectBtn) {
+            elements.useManualQuickConnectBtn.style.display = 'inline-block';
+        }
+        
+        // Show password form by default
+        showManualPasswordForm();
+        
+        clearError();
+        clearStatus();
+    }
+    
+    function showManualPasswordForm() {
+        // Hide Quick Connect form
+        if (elements.manualQuickConnectForm) {
+            elements.manualQuickConnectForm.style.display = 'none';
+        }
+        
+        // Show password form
+        if (elements.manualPasswordForm) {
+            elements.manualPasswordForm.style.display = 'block';
+        }
+        
+        // Hide Use Password button, show Use Quick Connect button
+        if (elements.useManualPasswordBtn) {
+            elements.useManualPasswordBtn.style.display = 'none';
+        }
+        if (elements.useManualQuickConnectBtn) {
+            elements.useManualQuickConnectBtn.style.display = 'inline-block';
+        }
+        
+        // Clear and focus username
+        if (elements.manualUsername) {
+            elements.manualUsername.value = '';
+            elements.manualUsername.focus();
+        }
+        if (elements.manualPassword) {
+            elements.manualPassword.value = '';
+        }
+        
+        clearError();
+    }
+    
+    function showManualQuickConnectForm() {
+        // Hide password form
+        if (elements.manualPasswordForm) {
+            elements.manualPasswordForm.style.display = 'none';
+        }
+        
+        // Show Quick Connect form
+        if (elements.manualQuickConnectForm) {
+            elements.manualQuickConnectForm.style.display = 'block';
+        }
+        
+        // Hide Use Quick Connect button, show Use Password button
+        if (elements.useManualQuickConnectBtn) {
+            elements.useManualQuickConnectBtn.style.display = 'none';
+        }
+        if (elements.useManualPasswordBtn) {
+            elements.useManualPasswordBtn.style.display = 'inline-block';
+        }
+        
+        // Quick Connect doesn't need username - initiate directly
+        initiateManualQuickConnect();
+        
+        clearError();
+    }
+    
+    /**
+     * Initiate Quick Connect flow (shared logic for manual and regular login)
+     * @param {Object} config - Configuration object
+     * @param {HTMLElement} config.codeElement - Element to display QC code
+     * @param {HTMLElement} config.statusElement - Element to display status
+     * @param {Function} config.onSuccess - Callback on successful authentication
+     * @param {Function} config.onError - Callback on error
+     */
+    function initiateQuickConnectFlow(config) {
+        if (!connectedServer) {
+            showError('No server connected');
+            return;
+        }
+        
+        showStatus('Initiating Quick Connect...', 'info');
+        
+        JellyfinAPI.initiateQuickConnect(connectedServer.address, function(err, data) {
+            if (err || !data || !data.Secret) {
+                clearStatus();
+                showError('Quick Connect is not available');
+                if (config.onError) config.onError();
+                return;
+            }
+            
+            quickConnectSecret = data.Secret;
+            
+            if (config.codeElement) {
+                config.codeElement.textContent = data.Code || '------';
+            }
+            if (config.statusElement) {
+                config.statusElement.textContent = 'Waiting for authentication...';
+                if (config.statusElement.classList) {
+                    config.statusElement.classList.remove('authenticated');
+                }
+            }
+            
+            clearStatus();
+            
+            // Start polling for Quick Connect completion
+            if (quickConnectInterval) {
+                clearInterval(quickConnectInterval);
+            }
+            quickConnectInterval = setInterval(function() {
+                pollQuickConnectStatus(config);
+            }, QUICK_CONNECT_POLL_INTERVAL_MS);
+            
+            // Check immediately
+            if (config.checkImmediately) {
+                pollQuickConnectStatus(config);
+            }
+        });
+    }
+    
+    /**
+     * Poll Quick Connect status (shared logic for manual and regular login)
+     * @param {Object} config - Configuration object (same as initiateQuickConnectFlow)
+     */
+    function pollQuickConnectStatus(config) {
+        if (!quickConnectSecret || !connectedServer) {
+            stopQuickConnectPolling();
+            return;
+        }
+        
+        // First check the status
+        JellyfinAPI.checkQuickConnectStatus(connectedServer.address, quickConnectSecret, function(err, statusData) {
+            if (err) {
+                console.error('Quick Connect status check failed:', err);
+                return; // Keep polling
+            }
+            
+            if (!statusData) {
+                // Still waiting
+                return;
+            }
+            
+            // Check if authenticated
+            if (statusData.Authenticated !== true) {
+                // Still waiting for user to approve
+                return;
+            }
+            
+            // User has approved! Now exchange the secret for access token
+            JellyfinAPI.authenticateQuickConnect(connectedServer.address, quickConnectSecret, function(authErr, authData) {
+                if (authErr) {
+                    stopQuickConnectPolling();
+                    showError('Quick Connect authentication failed: ' + (authErr.error || 'Unknown error'));
+                    if (config.onError) config.onError();
+                    return;
+                }
+                
+                if (!authData || !authData.AccessToken || !authData.User) {
+                    stopQuickConnectPolling();
+                    showError('Quick Connect authentication response invalid');
+                    if (config.onError) config.onError();
+                    return;
+                }
+                
+                stopQuickConnectPolling();
+                
+                // Update status if element provided
+                if (config.statusElement) {
+                    config.statusElement.textContent = 'Authenticated! Logging in...';
+                    if (config.statusElement.classList) {
+                        config.statusElement.classList.add('authenticated');
+                    }
+                }
+                
+                // Note: Auth is already stored by authenticateQuickConnect in jellyfin-api.js
+                
+                // Store server info for last login
+                storage.set('jellyfin_last_server', {
+                    address: connectedServer.address,
+                    name: connectedServer.name,
+                    username: authData.User.Name
+                });
+                
+                // Save for auto-login
+                storage.set('last_login', {
+                    serverAddress: connectedServer.address,
+                    serverName: connectedServer.name,
+                    username: authData.User.Name,
+                    isQuickConnect: true
+                });
+                
+                showStatus('Login successful! Welcome, ' + authData.User.Name + '!', 'success');
+                
+                if (config.onSuccess) {
+                    config.onSuccess(authData);
+                } else {
+                    setTimeout(function() {
+                        window.location.href = 'browse.html';
+                    }, LOGIN_SUCCESS_DELAY_MS);
+                }
+            });
+        });
+    }
+    
+    /**
+     * Stop Quick Connect polling
+     */
+    function stopQuickConnectPolling() {
+        if (quickConnectInterval) {
+            clearInterval(quickConnectInterval);
+            quickConnectInterval = null;
+        }
+        quickConnectSecret = null;
+    }
+    
+    function initiateManualQuickConnect() {
+        initiateQuickConnectFlow({
+            codeElement: elements.manualQuickConnectCode,
+            statusElement: elements.manualQuickConnectStatus,
+            onError: null
+        });
+    }
+    
+    function cancelManualLogin() {
+        // Stop Quick Connect polling if active
+        stopQuickConnectPolling();
+        
+        // Hide manual login section
+        if (elements.manualLoginSection) {
+            elements.manualLoginSection.style.display = 'none';
+        }
+        if (elements.manualPasswordForm) {
+            elements.manualPasswordForm.style.display = 'none';
+        }
+        if (elements.manualQuickConnectForm) {
+            elements.manualQuickConnectForm.style.display = 'none';
+        }
+        
+        // Show user selection
+        if (elements.userSelection) {
+            elements.userSelection.style.display = 'block';
+        }
+        
+        // Focus Add Account button
+        if (elements.addAccountBtn) {
+            setTimeout(function() {
+                elements.addAccountBtn.focus();
+            }, FOCUS_DELAY_MS);
+        }
+        
+        clearError();
+    }
+    
+    function handleManualLogin() {
+        if (!connectedServer) {
+            showError('No server connected');
+            return;
+        }
+        
+        var username = elements.manualUsername ? elements.manualUsername.value.trim() : '';
+        var password = elements.manualPassword ? elements.manualPassword.value : '';
+        
+        if (!username) {
+            showError('Please enter a username');
+            if (elements.manualUsername) {
+                elements.manualUsername.focus();
+            }
+            return;
+        }
+        
+        clearError();
+        showStatus('Logging in as ' + username + '...', 'info');
+        
+        JellyfinAPI.authenticateByName(
+            connectedServer.address,
+            username,
+            password,
+            function(err, authData) {
+                if (err || !authData) {
+                    JellyfinAPI.Logger.error('Manual login failed:', err);
+                    showError('Login failed! Check your username and password.');
+                    return;
+                }
+                
+                if (!authData.accessToken || !authData.userId) {
+                    JellyfinAPI.Logger.error('Manual login failed: Invalid response');
+                    showError('Login failed! Invalid response from server.');
+                    return;
+                }
+                
+                // Note: authData from authenticateByName already stores auth, no need to call storeAuth again
+                
+                // Store server info for last login
+                storage.set('jellyfin_last_server', {
+                    address: connectedServer.address,
+                    name: connectedServer.name,
+                    username: authData.username
+                });
+                
+                showStatus('Login successful! Welcome, ' + authData.username + '!', 'success');
+                
+                setTimeout(function() {
+                    window.location.href = 'browse.html';
+                }, LOGIN_SUCCESS_DELAY_MS);
+            }
+        );
+    }
+
     function showPasswordForm() {
         hideAllLoginMethods();
         
         if (elements.passwordForm) {
             elements.passwordForm.style.display = 'block';
+        }
+        
+        // Hide Use Password button, show Use Quick Connect button
+        if (elements.usePasswordBtn) {
+            elements.usePasswordBtn.style.display = 'none';
+        }
+        if (elements.useQuickConnectBtn) {
+            elements.useQuickConnectBtn.style.display = 'inline-block';
         }
         
         // Update user info
@@ -444,6 +929,14 @@ var LoginController = (function() {
         
         if (elements.quickConnectForm) {
             elements.quickConnectForm.style.display = 'block';
+        }
+        
+        // Hide Use Quick Connect button, show Use Password button
+        if (elements.useQuickConnectBtn) {
+            elements.useQuickConnectBtn.style.display = 'none';
+        }
+        if (elements.usePasswordBtn) {
+            elements.usePasswordBtn.style.display = 'inline-block';
         }
         
         // Update user info
@@ -475,7 +968,8 @@ var LoginController = (function() {
                 avatarElement.src = imgUrl;
                 avatarElement.classList.remove('no-image');
             } else {
-                avatarElement.src = '';
+                // Don't set src attribute when there's no image - this prevents broken image placeholder
+                avatarElement.removeAttribute('src');
                 avatarElement.classList.add('no-image');
             }
         }
@@ -557,18 +1051,27 @@ var LoginController = (function() {
                 return;
             }
             
-            if (!authData || !authData.AccessToken) {
+            if (!authData || !authData.accessToken) {
                 JellyfinAPI.Logger.error('No access token received. Auth data:', {
                     hasAuthData: !!authData,
-                    hasUser: !!(authData?.User),
-                    hasAccessToken: !!(authData?.AccessToken)
+                    hasAccessToken: !!(authData?.accessToken)
                 });
                 showError('Login failed! Invalid response from server.');
                 return;
             }
             
-            showStatus('Login successful! Welcome, ' + authData.User.Name + '!', 'success');
+            showStatus('Login successful! Welcome, ' + authData.username + '!', 'success');
             JellyfinAPI.Logger.success('Login successful');
+            
+            // Save login info for auto-login (only for passwordless users)
+            if (!password || password === '') {
+                storage.set('last_login', {
+                    serverAddress: connectedServer.address,
+                    serverName: connectedServer.name,
+                    username: selectedUser.Name
+                });
+                JellyfinAPI.Logger.info('Saved login info for auto-login');
+            }
             
             elements.passwordInput.value = '';
             
@@ -592,122 +1095,16 @@ var LoginController = (function() {
             elements.quickConnectStatus.classList.remove('authenticated');
         }
         
-        JellyfinAPI.initiateQuickConnect(connectedServer.address, function(err, response) {
-            if (err) {
-                JellyfinAPI.Logger.error('Quick Connect initiation failed:', err);
-                showError('Quick Connect is not enabled on this server');
-                backToUserSelection();
-                return;
-            }
-            
-            if (!response || !response.Secret) {
-                JellyfinAPI.Logger.error('Invalid QuickConnect response');
-                showError('Quick Connect is not available');
-                backToUserSelection();
-                return;
-            }
-            
-            quickConnectSecret = response.Secret;
-            
-            if (elements.quickConnectCode) {
-                elements.quickConnectCode.textContent = response.Code;
-            }
-            if (elements.quickConnectStatus) {
-                elements.quickConnectStatus.textContent = 'Waiting for authentication...';
-            }
-            
-            // Start polling for status
-            startQuickConnectPolling();
-        });
-    }
-
-    function startQuickConnectPolling() {
-        // Clear any existing interval (but don't clear the secret!)
-        if (quickConnectInterval) {
-            clearInterval(quickConnectInterval);
-            quickConnectInterval = null;
-        }
-        
-        quickConnectInterval = setInterval(function() {
-            checkQuickConnectStatus();
-        }, QUICK_CONNECT_POLL_INTERVAL_MS);
-        
-        // Also check immediately
-        checkQuickConnectStatus();
-    }
-
-    function checkQuickConnectStatus() {
-        if (!quickConnectSecret || !connectedServer) {
-            stopQuickConnect();
-            return;
-        }
-        
-        JellyfinAPI.checkQuickConnectStatus(connectedServer.address, quickConnectSecret, function(err, response) {
-            if (err) {
-                JellyfinAPI.Logger.error('Quick Connect status check failed', err);
-                return;
-            }
-            
-            if (response.Authenticated) {
-                if (elements.quickConnectStatus) {
-                    elements.quickConnectStatus.textContent = 'Authenticated! Logging in...';
-                    elements.quickConnectStatus.classList.add('authenticated');
-                }
-                
-                // Stop polling but DON'T clear the secret yet - we need it for authentication
-                if (quickConnectInterval) {
-                    clearInterval(quickConnectInterval);
-                    quickConnectInterval = null;
-                }
-                
-                authenticateWithQuickConnect();
-            }
-        });
-    }
-
-    function authenticateWithQuickConnect() {
-        if (!quickConnectSecret || !connectedServer) {
-            showError('Quick Connect session expired');
-            return;
-        }
-        
-        JellyfinAPI.authenticateQuickConnect(connectedServer.address, quickConnectSecret, function(err, authData) {
-            // Clear the secret now that we're done with it
-            quickConnectSecret = null;
-            
-            if (err) {
-                JellyfinAPI.Logger.error('Quick Connect authentication failed:', err);
-                showError('Quick Connect authentication failed');
-                backToUserSelection();
-                return;
-            }
-            
-            if (!authData || !authData.AccessToken) {
-                JellyfinAPI.Logger.error('No access token from QuickConnect. Auth data:', {
-                    hasAuthData: !!authData,
-                    hasUser: !!(authData?.User),
-                    hasAccessToken: !!(authData?.AccessToken)
-                });
-                showError('Quick Connect authentication failed');
-                backToUserSelection();
-                return;
-            }
-            
-            showStatus('Login successful! Welcome, ' + authData.User.Name + '!', 'success');
-            JellyfinAPI.Logger.success('Quick Connect login successful');
-            
-            setTimeout(function() {
-                window.location.href = 'browse.html';
-            }, 1000);
+        initiateQuickConnectFlow({
+            codeElement: elements.quickConnectCode,
+            statusElement: elements.quickConnectStatus,
+            checkImmediately: true,
+            onError: backToUserSelection
         });
     }
 
     function stopQuickConnect() {
-        if (quickConnectInterval) {
-            clearInterval(quickConnectInterval);
-            quickConnectInterval = null;
-        }
-        quickConnectSecret = null;
+        stopQuickConnectPolling();
     }
 
     function showError(message) {
