@@ -36,7 +36,6 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    filter: blur(20px);
     transform: scale(1.1);
     opacity: 1;
     transition: opacity 0.5s ease;
@@ -323,7 +322,7 @@ body {
 .detail-content-wrapper {
     position: relative;
     z-index: 1;
-    padding: 24px 60px;
+    padding: 40px 60px 24px 60px;
 }
 
 .detail-title {
@@ -438,6 +437,34 @@ body {
     outline: none;
     transform: translateZ(0);
     backface-visibility: hidden;
+    position: relative;
+}
+
+/* Landscape cards (16:9 aspect ratio) */
+.item-card.landscape-card {
+    width: 384px; /* 240 * 1.6 for landscape aspect */
+}
+
+.item-card.landscape-card .item-image {
+    height: 216px; /* 384 / 1.778 */
+}
+
+/* Wide cards (between portrait and landscape) */
+.item-card.wide-card {
+    width: 300px;
+}
+
+.item-card.wide-card .item-image {
+    height: 270px;
+}
+
+/* Portrait cards (default 2:3 aspect ratio) */
+.item-card.portrait-card {
+    width: 240px;
+}
+
+.item-card.portrait-card .item-image {
+    height: 360px; /* 240 / 0.667 */
 }
 
 .item-card.focused {
@@ -450,6 +477,24 @@ body {
     z-index: 9;
 }
 
+/* Progress bar for Continue Watching items */
+.item-progress {
+    position: absolute;
+    bottom: 45px;
+    left: 0;
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+
+.item-progress-fill {
+    height: 100%;
+    background: #00a4dc;
+    transition: width 0.3s ease;
+}
+
 .item-image {
     width: 100%;
     height: 360px;
@@ -458,6 +503,13 @@ body {
     border-radius: 8px;
     transform: translateZ(0);
     backface-visibility: hidden;
+    border: 2px solid transparent;
+    transition: border-color 0.2s;
+}
+
+.item-card.focused .item-image,
+.item-card:hover .item-image {
+    border-color: rgba(255, 255, 255, 0.8);
 }
 
 .item-title {
