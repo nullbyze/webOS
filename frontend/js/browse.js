@@ -2,9 +2,10 @@ var BrowseController = (function() {
     'use strict';
 
     let auth = null;
-    let currentView = 'home';
     let rows = [];
     let userLibraries = [];
+    let featuredBannerEnabled = true;
+    let hasImageHelper = false;
     
     const focusManager = {
         currentRow: 0,
@@ -30,28 +31,25 @@ var BrowseController = (function() {
     const NAVBAR_CHECK_INTERVAL_MS = 50;
     const FOCUS_INIT_DELAY_MS = 100;
     const CONTENT_LOAD_DELAY_MS = 800;
-    const CAROUSEL_AUTO_PLAY_INTERVAL_MS = 8000;
     
-    // Animation Constants
     const SCROLL_ANIMATION_DURATION_MS = 250;
     const SCROLL_THRESHOLD_PX = 2;
-    const ROW_VERTICAL_POSITION = 0.45; // 45% of viewport height
+    const ROW_VERTICAL_POSITION = 0.45;
 
     /**
      * Initialize the browse controller
      * Authenticates, caches elements, loads libraries, and sets up navigation
      */
     function init() {
-        JellyfinAPI.Logger.info('Initializing browse controller...');
         
         auth = JellyfinAPI.getStoredAuth();
         if (!auth) {
-            JellyfinAPI.Logger.error('No authentication found, redirecting to login');
             window.location.href = 'login.html';
             return;
         }
 
-        JellyfinAPI.Logger.success('Authenticated as:', auth.username);
+        
+        hasImageHelper = typeof ImageHelper !== 'undefined';
         
         var checkNavbar = setInterval(function() {
             if (document.getElementById('homeBtn')) {
@@ -106,8 +104,11 @@ var BrowseController = (function() {
             errorDisplay: document.getElementById('errorDisplay'),
             errorText: document.getElementById('errorText'),
             retryBtn: document.getElementById('retryBtn'),
-            logoutBtn: document.getElementById('logoutBtn')
+            logoutBtn: document.getElementById('logoutBtn'),
+            globalBackdropImage: document.getElementById('globalBackdropImage')
         };
+        
+        storage.applyBackdropBlur(elements.globalBackdropImage, 'backdropBlurHome', 20);
     }
 
     /**
@@ -117,29 +118,16 @@ var BrowseController = (function() {
     function loadUserLibraries() {
         JellyfinAPI.getUserViews(auth.serverAddress, auth.userId, auth.accessToken, function(err, response) {
             if (err) {
-                JellyfinAPI.Logger.error('Failed to load user libraries:', err);
                 return;
             }
             
             if (!response || !response.Items) {
-                JellyfinAPI.Logger.error('No library data returned from getUserViews:', {
-                    hasResponse: !!response,
-                    hasItems: !!(response?.Items)
-                });
                 return;
             }
             
-            // Libraries already filtered in API layer (unsupported types and empty libraries removed)
             userLibraries = response.Items;
             
-            JellyfinAPI.Logger.info('Loaded libraries:', userLibraries.length, 'with content');
             
-            // Log library details for debugging
-            userLibraries.forEach(function(lib) {
-                JellyfinAPI.Logger.info('  -', lib.Name, 
-                    '(Type:', lib.CollectionType || 'unknown', 
-                    'Items:', lib.ChildCount || '?' + ')');
-            });
         });
     }
 
@@ -272,24 +260,25 @@ var BrowseController = (function() {
                     updateRowVisibility();
                     updateFocus();
                 } else if (focusManager.currentRow === 0) {
-                    // Slide banner back down
-                    if (elements.featuredBanner) {
-                        elements.featuredBanner.classList.remove('slide-up');
+                    if (featuredBannerEnabled && elements.featuredBanner && elements.featuredBanner.style.display !== 'none') {
+                        if (elements.featuredBanner) {
+                            elements.featuredBanner.classList.remove('slide-up');
+                        }
+                        
+                        getAllRows().forEach(function(row) {
+                            row.classList.remove('row-hidden');
+                        });
+                        
+                        focusManager.inFeaturedBanner = true;
+                        focusManager.inNavBar = false;
+                        if (elements.featuredBanner) {
+                            elements.featuredBanner.classList.add('focused');
+                            elements.featuredBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                        updateFeaturedFocus();
+                    } else {
+                        focusToNavBar();
                     }
-                    // Don't remove move-up class - it's no longer used
-                    
-                    // Show all rows when going back to featured banner
-                    getAllRows().forEach(function(row) {
-                        row.classList.remove('row-hidden');
-                    });
-                    
-                    focusManager.inFeaturedBanner = true;
-                    focusManager.inNavBar = false;
-                    if (elements.featuredBanner) {
-                        elements.featuredBanner.classList.add('focused');
-                        elements.featuredBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
-                    updateFeaturedFocus();
                 }
                 break;
                 
@@ -396,6 +385,9 @@ var BrowseController = (function() {
                 }
                 navButtons[focusManager.navBarIndex].classList.add('focused');
                 navButtons[focusManager.navBarIndex].focus();
+                if (NavbarComponent.scrollNavButtonIntoView) {
+                    NavbarComponent.scrollNavButtonIntoView(navButtons[focusManager.navBarIndex]);
+                }
                 break;
                 
             case KeyCodes.RIGHT:
@@ -405,11 +397,21 @@ var BrowseController = (function() {
                 }
                 navButtons[focusManager.navBarIndex].classList.add('focused');
                 navButtons[focusManager.navBarIndex].focus();
+                if (NavbarComponent.scrollNavButtonIntoView) {
+                    NavbarComponent.scrollNavButtonIntoView(navButtons[focusManager.navBarIndex]);
+                }
                 break;
                 
             case KeyCodes.DOWN:
                 evt.preventDefault();
-                focusToFeaturedBanner();
+                if (featuredBannerEnabled && elements.featuredBanner && elements.featuredBanner.style.display !== 'none') {
+                    focusToFeaturedBanner();
+                } else {
+                    focusManager.inNavBar = false;
+                    focusManager.currentRow = 0;
+                    focusManager.currentItem = focusManager.rowPositions[0] || 0;
+                    updateFocus();
+                }
                 break;
                 
             case KeyCodes.ENTER:
@@ -422,6 +424,10 @@ var BrowseController = (function() {
         }
     }
     
+    /**
+     * Move focus to navigation bar
+     * @private
+     */
     function focusToNavBar() {
         focusManager.inNavBar = true;
         focusManager.inFeaturedBanner = false;
@@ -436,6 +442,9 @@ var BrowseController = (function() {
             });
             navButtons[focusManager.navBarIndex].classList.add('focused');
             navButtons[focusManager.navBarIndex].focus();
+            if (NavbarComponent.scrollNavButtonIntoView) {
+                NavbarComponent.scrollNavButtonIntoView(navButtons[focusManager.navBarIndex]);
+            }
         }
         
         if (elements.featuredBanner) {
@@ -445,6 +454,10 @@ var BrowseController = (function() {
         clearAllItemFocus();
     }
     
+    /**
+     * Move focus to featured banner carousel
+     * @private
+     */
     function focusToFeaturedBanner() {
         focusManager.inFeaturedBanner = true;
         focusManager.inNavBar = false;
@@ -471,6 +484,10 @@ var BrowseController = (function() {
         clearAllItemFocus();
     }
     
+    /**
+     * Update UI to reflect featured banner focus state
+     * @private
+     */
     function updateFeaturedFocus() {
         if (elements.featuredBanner) {
             elements.featuredBanner.classList.add('focused');
@@ -530,11 +547,21 @@ var BrowseController = (function() {
                 '&maxWidth=1920&quality=90';
             element.src = backdropUrl;
             element.style.display = 'block';
+            
+            // Reapply blur settings after updating backdrop
+            if (elementId === 'globalBackdropImage') {
+                storage.applyBackdropBlur(element, 'backdropBlurHome', 20);
+            }
         } else {
             element.style.display = 'none';
         }
     }
     
+    /**
+     * Update detail section with selected item information
+     * @param {HTMLElement} itemCard - The focused item card element
+     * @private
+     */
     function updateDetailSection(itemCard) {
         if (!elements.detailSection || !elements.detailTitle || !elements.detailInfoRow || !elements.detailSummary) {
             return;
@@ -590,6 +617,12 @@ var BrowseController = (function() {
         elements.detailSummary.textContent = itemData.overview || 'No description available.';
     }
     
+    /**
+     * Format runtime ticks into human-readable string
+     * @param {number} ticks - Runtime in ticks (10,000 ticks = 1ms)
+     * @returns {string} Formatted runtime string (e.g., "2h 30m")
+     * @private
+     */
     function formatRuntime(ticks) {
         var minutes = Math.round(ticks / 600000000);
         var hours = Math.floor(minutes / 60);
@@ -605,6 +638,12 @@ var BrowseController = (function() {
      * Scrolls item horizontally into view within its row using transform
      * @param {HTMLElement} currentItem - The focused item card
      * @param {HTMLElement} rowScroller - The row's scroll container
+     */
+    /**
+     * Scrolls item horizontally into view within its row using transform
+     * @param {HTMLElement} currentItem - The focused item card
+     * @param {HTMLElement} rowScroller - The row's scroll container
+     * @private
      */
     function scrollItemHorizontally(currentItem, rowScroller) {
         if (!currentItem || !rowScroller) return;
@@ -658,6 +697,12 @@ var BrowseController = (function() {
      * @param {HTMLElement} currentRowElement - The current focused row
      * @returns {number} Scroll adjustment in pixels (0 if no adjustment needed)
      */
+    /**
+     * Calculate vertical scroll adjustment to position row in viewport
+     * @param {HTMLElement} currentRowElement - The current focused row element
+     * @returns {number} Scroll adjustment in pixels
+     * @private
+     */
     function calculateVerticalScrollAdjustment(currentRowElement) {
         if (!currentRowElement) return 0;
         
@@ -682,6 +727,11 @@ var BrowseController = (function() {
     /**
      * Applies vertical scroll adjustment to main content with smooth animation
      * @param {number} scrollAdjustment - Amount to scroll in pixels
+     */
+    /**
+     * Apply smooth vertical scroll animation
+     * @param {number} scrollAdjustment - Target scroll adjustment in pixels
+     * @private
      */
     function applyVerticalScroll(scrollAdjustment) {
         if (scrollAdjustment === 0) return;
@@ -718,12 +768,21 @@ var BrowseController = (function() {
      * @returns {NodeList} All content row elements
      * @private
      */
+    /**
+     * Get all content row elements
+     * @returns {NodeList} List of row elements
+     * @private
+     */
     function getAllRows() {
         return document.querySelectorAll('.content-row');
     }
     
     /**
      * Helper to clear focus from all item cards
+     * @private
+     */
+    /**
+     * Remove focus class from all item cards
      * @private
      */
     function clearAllItemFocus() {
@@ -735,6 +794,10 @@ var BrowseController = (function() {
     /**
      * Update focus to current item and handle scrolling
      * Applies smooth scrolling animation to keep focused item visible
+     * @private
+     */
+    /**
+     * Update focus to current item and handle scrolling
      * @private
      */
     function updateFocus() {
@@ -813,7 +876,6 @@ var BrowseController = (function() {
      */
     function switchView(view, libraryId, libraryName, collectionType) {
         currentView = view;
-        JellyfinAPI.Logger.info('Switching to view:', view, libraryId || '');
         
         document.querySelectorAll('.nav-btn').forEach(function(btn) {
             btn.classList.remove('active');
@@ -848,38 +910,51 @@ var BrowseController = (function() {
      */
     function loadHomeContent() {
         showLoading();
-        JellyfinAPI.Logger.info('Loading home content...');
         
         JellyfinAPI.getUserViews(auth.serverAddress, auth.userId, auth.accessToken, function(err, views) {
             if (err) {
-                JellyfinAPI.Logger.error('Failed to load libraries:', err);
                 showError('Failed to load libraries');
                 return;
             }
             
             if (!views || !views.Items) {
-                JellyfinAPI.Logger.error('No views data returned from getUserViews:', {
-                    hasViews: !!views,
-                    hasItems: !!(views?.Items)
-                });
                 showError('Failed to load libraries');
                 return;
             }
             
             if (views.Items.length === 0) {
-                JellyfinAPI.Logger.warn('No supported libraries found');
                 showError('No media libraries available');
                 return;
             }
             
-            JellyfinAPI.Logger.success('Loaded user views:', views.Items.length, 'supported libraries');
             
             clearRows();
-            loadFeaturedItem();
+            
+            // Load featured banner if enabled
+            var storedSettings = storage.get('jellyfin_settings');
+            var showFeaturedBanner = true;
+            if (storedSettings) {
+                try {
+                    var parsedSettings = JSON.parse(storedSettings);
+                    showFeaturedBanner = parsedSettings.showFeaturedBanner !== false;
+                } catch (e) {
+                }
+            }
+            
+            // Store state for navigation logic
+            featuredBannerEnabled = showFeaturedBanner;
+            
+            if (showFeaturedBanner) {
+                loadFeaturedItem();
+            } else {
+                // Hide featured banner if disabled
+                if (elements.featuredBanner) {
+                    elements.featuredBanner.style.display = 'none';
+                }
+            }
             
             // Load home rows settings
             var homeRowsSettings = getHomeRowsSettings();
-            JellyfinAPI.Logger.info('Home rows settings:', homeRowsSettings);
             
             var rowsToLoad = [];
             
@@ -908,31 +983,52 @@ var BrowseController = (function() {
                 return setting ? setting.enabled : true;
             }
             
-            // Add Continue Watching if enabled
-            if (isRowEnabled('resume')) {
-                rowsToLoad.push({ 
-                    title: 'Continue Watching', 
-                    type: 'resume',
-                    settingId: 'resume',
-                    order: getRowOrder('resume', homeRowsSettings)
-                });
+            // Get merge setting from storage
+            var storedSettings = storage.get('jellyfin_settings');
+            var mergeContinueWatching = false;
+            if (storedSettings) {
+                try {
+                    var parsedSettings = JSON.parse(storedSettings);
+                    mergeContinueWatching = parsedSettings.mergeContinueWatchingNextUp || false;
+                } catch (e) {
+                }
             }
             
-            // Add Next Up if enabled and TV shows exist
-            if (isRowEnabled('nextup') && hasTVShows) {
+            // Add Continue Watching - merged or separate based on setting
+            if (mergeContinueWatching && isRowEnabled('resume')) {
+                // Merged row: combines Resume and Next Up
                 rowsToLoad.push({ 
-                    title: 'Next Up', 
-                    type: 'nextup',
-                    settingId: 'nextup',
-                    order: getRowOrder('nextup', homeRowsSettings)
+                    title: 'Continue Watching', 
+                    type: 'merged-continue-watching',
+                    settingId: 'resume',
+                    order: Math.min(getRowOrder('resume', homeRowsSettings), getRowOrder('nextup', homeRowsSettings))
                 });
+            } else {
+                // Separate rows
+                if (isRowEnabled('resume')) {
+                    rowsToLoad.push({ 
+                        title: 'Continue Watching', 
+                        type: 'resume',
+                        settingId: 'resume',
+                        order: getRowOrder('resume', homeRowsSettings)
+                    });
+                }
+                
+                // Add Next Up if enabled and TV shows exist
+                if (isRowEnabled('nextup') && hasTVShows) {
+                    rowsToLoad.push({ 
+                        title: 'Next Up', 
+                        type: 'nextup',
+                        settingId: 'nextup',
+                        order: getRowOrder('nextup', homeRowsSettings)
+                    });
+                }
             }
             
             // Live TV Support: Check for Live TV availability
             JellyfinAPI.getLiveTVInfo(auth.serverAddress, auth.userId, auth.accessToken,
                 function(liveTVErr, liveTVInfo) {
                 if (!liveTVErr && liveTVInfo && liveTVInfo.available && isRowEnabled('livetv')) {
-                    JellyfinAPI.Logger.success('Live TV detected:', liveTVInfo.channelCount, 'channels');
                     
                     // Add Live TV Channels row
                     rowsToLoad.push({ 
@@ -952,7 +1048,6 @@ var BrowseController = (function() {
                         order: getRowOrder('livetv', homeRowsSettings) + 0.5
                     });
                 } else {
-                    JellyfinAPI.Logger.info('Live TV not available or not enabled');
                 }
                 
                 continueLoadingRows();
@@ -964,7 +1059,6 @@ var BrowseController = (function() {
                     JellyfinAPI.getCollections(auth.serverAddress, auth.userId, auth.accessToken,
                         function(collErr, collData) {
                         if (!collErr && collData && collData.Items && collData.Items.length > 0) {
-                            JellyfinAPI.Logger.success('Collections found:', collData.Items.length);
                             rowsToLoad.push({
                                 title: 'Collections',
                                 type: 'collections',
@@ -972,7 +1066,6 @@ var BrowseController = (function() {
                                 order: getRowOrder('collections', homeRowsSettings)
                             });
                         } else {
-                            JellyfinAPI.Logger.info('No collections available or not enabled');
                         }
                         
                         continueWithLibraries();
@@ -987,12 +1080,8 @@ var BrowseController = (function() {
                 // Note: views.Items already validated in parent function
                 var librariesForRows = views.Items.filter(function(view) {
                     var collectionType = view.CollectionType ? view.CollectionType.toLowerCase() : '';
-                    // Skip LiveTV from regular library list (handled separately above)
                     return collectionType !== 'livetv';
                 });
-                
-                JellyfinAPI.Logger.info('Libraries for home rows:', 
-                    librariesForRows.length, 'of', views.Items.length);
                 
                 // Add Library Tiles row 
                 if (librariesForRows.length > 0 && isRowEnabled('library-tiles')) {
@@ -1067,7 +1156,6 @@ var BrowseController = (function() {
     }
 
     function loadLibraryContent(libraryId, libraryName, collectionType) {
-        JellyfinAPI.Logger.info('Loading library content:', libraryName, 'Type:', collectionType);
         showLoading();
         stopCarouselAutoPlay();
         clearRows();
@@ -1193,7 +1281,6 @@ var BrowseController = (function() {
 
     function loadMoviesContent() {
         showLoading();
-        JellyfinAPI.Logger.info('Loading movies content...');
         
         clearRows();
         elements.featuredBanner.style.opacity = '0';
@@ -1210,7 +1297,6 @@ var BrowseController = (function() {
 
     function loadShowsContent() {
         showLoading();
-        JellyfinAPI.Logger.info('Loading TV shows content...');
         
         clearRows();
         elements.featuredBanner.style.opacity = '0';
@@ -1246,16 +1332,13 @@ var BrowseController = (function() {
     }
 
     function loadRow(rowDef, callback) {
-        JellyfinAPI.Logger.info('Loading row:', rowDef.title, 'type:', rowDef.type);
         
         // Handle library tiles row (special case - no API call needed)
         if (rowDef.type === 'library-tiles') {
             if (rowDef.libraries && rowDef.libraries.length > 0) {
-                JellyfinAPI.Logger.success('Rendering library tiles:', rowDef.libraries.length, 'libraries');
                 renderRow(rowDef.title, rowDef.libraries, rowDef.type);
                 if (callback) callback(true);
             } else {
-                JellyfinAPI.Logger.info('No libraries for tiles row');
                 if (callback) callback(false);
             }
             return;
@@ -1266,13 +1349,25 @@ var BrowseController = (function() {
             // Continue Watching - use dedicated resume endpoint
             JellyfinAPI.getResumeItems(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No resume items available');
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' items)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
+                if (callback) callback(true);
+            });
+            return;
+        }
+        
+        if (rowDef.type === 'merged-continue-watching') {
+            // Merged Continue Watching - combines Resume and Next Up
+            JellyfinAPI.getMergedContinueWatching(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
+                if (err || !data || !data.Items || data.Items.length === 0) {
+                    if (callback) callback(false);
+                    return;
+                }
+                
+                renderRow(rowDef.title, data.Items, 'resume');
                 if (callback) callback(true);
             });
             return;
@@ -1282,12 +1377,10 @@ var BrowseController = (function() {
             // Next Up - use dedicated next up endpoint
             JellyfinAPI.getNextUpItems(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No next up items available');
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' items)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
                 if (callback) callback(true);
             });
@@ -1300,12 +1393,10 @@ var BrowseController = (function() {
             JellyfinAPI.getLatestMedia(auth.serverAddress, auth.userId, auth.accessToken,
                 rowDef.parentId, includeTypes, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No latest items for:', rowDef.title);
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' items)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
                 if (callback) callback(true);
             });
@@ -1316,12 +1407,10 @@ var BrowseController = (function() {
         if (rowDef.type === 'livetv-channels') {
             JellyfinAPI.getLiveTVChannels(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No Live TV channels available');
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' channels)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
                 if (callback) callback(true);
             });
@@ -1332,12 +1421,10 @@ var BrowseController = (function() {
         if (rowDef.type === 'livetv-recordings') {
             JellyfinAPI.getLiveTVRecordings(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No Live TV recordings available');
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' recordings)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
                 if (callback) callback(true);
             });
@@ -1348,12 +1435,10 @@ var BrowseController = (function() {
         if (rowDef.type === 'collections') {
             JellyfinAPI.getCollections(auth.serverAddress, auth.userId, auth.accessToken, function(err, data) {
                 if (err || !data || !data.Items || data.Items.length === 0) {
-                    JellyfinAPI.Logger.info('No collections available');
                     if (callback) callback(false);
                     return;
                 }
                 
-                JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' collections)');
                 renderRow(rowDef.title, data.Items, rowDef.type);
                 if (callback) callback(true);
             });
@@ -1427,12 +1512,10 @@ var BrowseController = (function() {
         
         JellyfinAPI.getItems(auth.serverAddress, auth.accessToken, endpoint, params, function(err, data) {
             if (err || !data || !data.Items || data.Items.length === 0) {
-                JellyfinAPI.Logger.warn('No items for row:', rowDef.title);
                 if (callback) callback(false);
                 return;
             }
             
-            JellyfinAPI.Logger.success('Loaded row:', rowDef.title, '(' + data.Items.length + ' items)');
             renderRow(rowDef.title, data.Items, rowDef.type);
             if (callback) callback(true);
         });
@@ -1565,10 +1648,22 @@ var BrowseController = (function() {
             clearInterval(featuredCarousel.intervalId);
         }
         
+        // Get carousel speed from settings
+        var carouselSpeed = 8000; // default
+        var stored = storage.get('jellyfin_settings');
+        if (stored) {
+            try {
+                var settings = JSON.parse(stored);
+                carouselSpeed = settings.carouselSpeed || 8000;
+            } catch (e) {
+                // Use default on parse error
+            }
+        }
+        
         featuredCarousel.intervalId = setInterval(function() {
             var nextIndex = (featuredCarousel.currentIndex + 1) % featuredCarousel.items.length;
             displayFeaturedItem(nextIndex);
-        }, CAROUSEL_AUTO_PLAY_INTERVAL_MS);
+        }, carouselSpeed);
     }
     
     function stopCarouselAutoPlay() {
@@ -1698,7 +1793,6 @@ var BrowseController = (function() {
      * @private
      */
     function handleLibraryTileClick(library) {
-        JellyfinAPI.Logger.info('Library tile clicked:', library.Name, library.Id);
         loadLibraryContent(library.Id, library.Name, library.CollectionType);
     }
 
@@ -1757,17 +1851,40 @@ var BrowseController = (function() {
         
         var imageUrl = '';
         
-        // Live TV Support: Handle channel images
-        if (isLiveTVChannel) {
-            // Use channel logo/primary image
-            if (item.ImageTags && item.ImageTags.Primary) {
-                imageUrl = auth.serverAddress + '/Items/' + item.Id + '/Images/Primary?quality=90&maxWidth=400';
+        // For episodes, always use the series poster instead of episode thumbnail
+        var isEpisode = item.Type === 'Episode';
+        
+        // Use ImageHelper for smart image selection
+        if (hasImageHelper) {
+            imageUrl = ImageHelper.getImageUrl(auth.serverAddress, item);
+            
+            // Apply aspect ratio class based on selected image type
+            var aspect = ImageHelper.getAspectRatio(item, ImageHelper.getImageType());
+            if (aspect > 1.5) {
+                card.classList.add('landscape-card');
+            } else if (aspect > 1.1) {
+                card.classList.add('wide-card');
+            } else {
+                card.classList.add('portrait-card');
             }
-        } else if (item.ImageTags && item.ImageTags.Primary) {
-            imageUrl = auth.serverAddress + '/Items/' + item.Id + '/Images/Primary?quality=90&maxHeight=400';
-        } else if (item.SeriesId && item.SeriesPrimaryImageTag) {
-            imageUrl = auth.serverAddress + '/Items/' + item.SeriesId +
-                '/Images/Primary?quality=90&maxHeight=400&tag=' + item.SeriesPrimaryImageTag;
+        } else {
+            // Fallback to old logic if ImageHelper not loaded
+            // Live TV Support: Handle channel images
+            if (isLiveTVChannel) {
+                // Use channel logo/primary image
+                if (item.ImageTags && item.ImageTags.Primary) {
+                    imageUrl = auth.serverAddress + '/Items/' + item.Id + '/Images/Primary?quality=90&maxWidth=400';
+                }
+            } else if (isEpisode && item.SeriesId && item.SeriesPrimaryImageTag) {
+                // For episodes, always use series poster
+                imageUrl = auth.serverAddress + '/Items/' + item.SeriesId +
+                    '/Images/Primary?quality=90&maxHeight=400&tag=' + item.SeriesPrimaryImageTag;
+            } else if (item.ImageTags && item.ImageTags.Primary) {
+                imageUrl = auth.serverAddress + '/Items/' + item.Id + '/Images/Primary?quality=90&maxHeight=400';
+            } else if (item.SeriesId && item.SeriesPrimaryImageTag) {
+                imageUrl = auth.serverAddress + '/Items/' + item.SeriesId +
+                    '/Images/Primary?quality=90&maxHeight=400&tag=' + item.SeriesPrimaryImageTag;
+            }
         }
         
         if (imageUrl) {
@@ -1775,9 +1892,13 @@ var BrowseController = (function() {
         } else {
             // Live TV channels get special placeholder
             var placeholderColor = isLiveTVChannel ? '%23e74c3c' : '%23333';
-            img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" ' +
-                'width="200" height="300"%3E%3Crect fill="' + placeholderColor +
-                '" width="200" height="300"/%3E%3C/svg%3E';
+            if (hasImageHelper) {
+                img.src = ImageHelper.getPlaceholderUrl(item, placeholderColor);
+            } else {
+                img.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" ' +
+                    'width="200" height="300"%3E%3Crect fill="' + placeholderColor +
+                    '" width="200" height="300"/%3E%3C/svg%3E';
+            }
         }
         
         img.alt = item.Name;
@@ -1786,12 +1907,29 @@ var BrowseController = (function() {
         titleDiv.className = 'item-title';
         titleDiv.textContent = item.Name;
         
+        // Add progress bar for items with playback progress
+        var progressContainer = null;
+        if (item.UserData && item.UserData.PlaybackPositionTicks && item.RunTimeTicks) {
+            var progressPercent = Math.round((item.UserData.PlaybackPositionTicks / item.RunTimeTicks) * 100);
+            if (progressPercent > 0 && progressPercent < 100) {
+                progressContainer = document.createElement('div');
+                progressContainer.className = 'item-progress';
+                
+                var progressFill = document.createElement('div');
+                progressFill.className = 'item-progress-fill';
+                progressFill.style.width = progressPercent + '%';
+                
+                progressContainer.appendChild(progressFill);
+            }
+        }
+        
         // Live TV Support: Add channel number for channels
         if (isLiveTVChannel && item.ChannelNumber) {
             var channelInfo = document.createElement('div');
             channelInfo.className = 'channel-info';
             channelInfo.textContent = 'Ch ' + item.ChannelNumber;
             card.appendChild(img);
+            if (progressContainer) card.appendChild(progressContainer);
             card.appendChild(channelInfo);
             card.appendChild(titleDiv);
         } else if (isBoxSet || isSeries) {
@@ -1807,15 +1945,18 @@ var BrowseController = (function() {
                 countBadge.textContent = displayCount;
                 
                 card.appendChild(img);
+                if (progressContainer) card.appendChild(progressContainer);
                 card.appendChild(countBadge);
                 card.appendChild(titleDiv);
             } else {
                 // No count available
                 card.appendChild(img);
+                if (progressContainer) card.appendChild(progressContainer);
                 card.appendChild(titleDiv);
             }
         } else {
             card.appendChild(img);
+            if (progressContainer) card.appendChild(progressContainer);
             card.appendChild(titleDiv);
         }
         
@@ -1829,18 +1970,15 @@ var BrowseController = (function() {
     }
 
     function handleItemClick(item) {
-        JellyfinAPI.Logger.info('Item clicked:', item.Name, item.Id, 'Type:', item.Type);
         
         // Live TV Support: Handle Live TV channel playback
         if (item.Type === 'TvChannel') {
-            JellyfinAPI.Logger.info('Starting Live TV channel:', item.Name);
             window.location.href = 'player.html?id=' + item.Id + '&mediaType=livetv';
             return;
         }
         
         // Live TV Support: Handle recording playback
         if (item.Type === 'Recording') {
-            JellyfinAPI.Logger.info('Playing Live TV recording:', item.Name);
             window.location.href = 'player.html?id=' + item.Id + '&mediaType=recording';
             return;
         }
@@ -1863,9 +2001,7 @@ var BrowseController = (function() {
         
         try {
             localStorage.setItem('browsePosition', JSON.stringify(position));
-            JellyfinAPI.Logger.info('Saved browse position:', position);
         } catch (e) {
-            JellyfinAPI.Logger.error('Failed to save browse position:', e);
         }
     }
 
@@ -1883,7 +2019,6 @@ var BrowseController = (function() {
             // Check if position is recent (within 5 minutes)
             var age = Date.now() - position.timestamp;
             if (age > 5 * 60 * 1000) {
-                JellyfinAPI.Logger.info('Saved position too old, using default');
                 localStorage.removeItem('browsePosition');
                 defaultFocus();
                 return;
@@ -1891,7 +2026,6 @@ var BrowseController = (function() {
             
             // If was in navbar, don't restore - use default focus
             if (position.inNavBar) {
-                JellyfinAPI.Logger.info('Was in navbar, using default focus');
                 localStorage.removeItem('browsePosition');
                 defaultFocus();
                 return;
@@ -1900,7 +2034,6 @@ var BrowseController = (function() {
             // If was in featured banner, restore featured banner focus
             if (position.inFeaturedBanner && elements.featuredBanner &&
                 elements.featuredBanner.style.display !== 'none') {
-                JellyfinAPI.Logger.info('Restoring featured banner focus');
                 focusManager.inFeaturedBanner = true;
                 focusManager.inNavBar = false;
                 focusManager.featuredButtonIndex = position.featuredButtonIndex || 0;
@@ -1916,7 +2049,6 @@ var BrowseController = (function() {
             if (typeof position.currentRow === 'number' && typeof position.currentItem === 'number') {
                 var rowElements = elements.contentRows.querySelectorAll('.content-row');
                 if (position.currentRow < rowElements.length) {
-                    JellyfinAPI.Logger.info('Restoring row focus:', position.currentRow, position.currentItem);
                     focusManager.currentRow = position.currentRow;
                     focusManager.currentItem = position.currentItem;
                     focusManager.inFeaturedBanner = false;
@@ -1933,7 +2065,6 @@ var BrowseController = (function() {
             defaultFocus();
             
         } catch (e) {
-            JellyfinAPI.Logger.error('Failed to restore browse position:', e);
             defaultFocus();
         }
     }
@@ -1942,7 +2073,6 @@ var BrowseController = (function() {
         // Check if featured banner is enabled and visible
         if (elements.featuredBanner && elements.featuredBanner.style.display !== 'none' &&
             featuredCarousel.items && featuredCarousel.items.length > 0) {
-            JellyfinAPI.Logger.info('Default focus: featured banner');
             focusManager.inFeaturedBanner = true;
             focusManager.inNavBar = false;
             focusManager.featuredButtonIndex = 0;
@@ -1951,7 +2081,6 @@ var BrowseController = (function() {
             }
         } else {
             // Default to first item in first row
-            JellyfinAPI.Logger.info('Default focus: first row');
             focusManager.currentRow = 0;
             focusManager.currentItem = 0;
             focusManager.inFeaturedBanner = false;
@@ -1961,26 +2090,43 @@ var BrowseController = (function() {
     }
 
     function clearRows() {
-        elements.contentRows.innerHTML = '';
+        if (elements.contentRows) {
+            elements.contentRows.innerHTML = '';
+        }
     }
 
     function showLoading() {
-        elements.loadingIndicator.style.display = 'flex';
-        elements.errorDisplay.style.display = 'none';
-        elements.contentRows.style.display = 'none';
+        if (elements.loadingIndicator) {
+            elements.loadingIndicator.style.display = 'flex';
+        }
+        if (elements.errorDisplay) {
+            elements.errorDisplay.style.display = 'none';
+        }
+        if (elements.contentRows) {
+            elements.contentRows.style.display = 'none';
+        }
     }
 
     function hideLoading() {
-        elements.loadingIndicator.style.display = 'none';
-        elements.contentRows.style.display = 'block';
+        if (elements.loadingIndicator) {
+            elements.loadingIndicator.style.display = 'none';
+        }
+        if (elements.contentRows) {
+            elements.contentRows.style.display = 'block';
+        }
     }
 
     function showError(message) {
         hideLoading();
-        elements.errorText.textContent = message;
-        elements.errorDisplay.style.display = 'flex';
-        elements.contentRows.style.display = 'none';
-        JellyfinAPI.Logger.error(message);
+        if (elements.errorText) {
+            elements.errorText.textContent = message;
+        }
+        if (elements.errorDisplay) {
+            elements.errorDisplay.style.display = 'flex';
+        }
+        if (elements.contentRows) {
+            elements.contentRows.style.display = 'none';
+        }
     }
 
     function handleLogout() {
@@ -1995,7 +2141,6 @@ var BrowseController = (function() {
             if (!auth) return;
         }
         
-        JellyfinAPI.Logger.info('Reloading current view:', currentView);
         
         if (currentView === 'home') {
             loadHomeContent();
@@ -2025,7 +2170,6 @@ var BrowseController = (function() {
                     return parsedSettings.homeRows;
                 }
             } catch (e) {
-                JellyfinAPI.Logger.error('Failed to parse settings:', e);
             }
         }
         
@@ -2067,7 +2211,6 @@ window.addEventListener('load', function() {
 
 window.addEventListener('visibilitychange', function() {
     if (!document.hidden) {
-        JellyfinAPI.Logger.info('Page became visible, reloading content...');
         BrowseController.reloadCurrentView();
     }
 });
