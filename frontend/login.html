@@ -44,7 +44,7 @@
                         class="input-field"
                     >
                     <div class="button-group">
-                        <button id="connectBtn" class="btn btn-primary" tabindex="0">Test Connection</button>
+                        <button id="connectBtn" class="btn btn-primary" tabindex="0">Connect</button>
                         <button id="discoverBtn" class="btn btn-secondary" tabindex="0">Discover Servers</button>
                     </div>
                 </div>
@@ -58,7 +58,57 @@
                     </div>
                 </div>
                 <div class="button-group" style="justify-content: center; margin-top: 20px;">
+                    <button id="addAccountBtn" class="btn btn-primary" tabindex="0">Add Account</button>
                     <button id="backToServerBtn" class="btn btn-secondary" tabindex="0">Back to Server Selection</button>
+                </div>
+            </div>
+
+            <!-- Manual Login (hidden until Add Account clicked) -->
+            <div class="section" id="manualLoginSection" style="display: none;">
+                <h2>Manual Login</h2>
+                <div class="login-method-buttons">
+                    <button id="useManualPasswordBtn" class="btn btn-secondary" tabindex="0" style="display: none;">Use Password</button>
+                    <button id="useManualQuickConnectBtn" class="btn btn-secondary" tabindex="0" style="display: none;">Use Quick Connect</button>
+                </div>
+                
+                <!-- Password Form -->
+                <div id="manualPasswordForm" style="display: none;">
+                    <div class="form-group">
+                        <label for="manualUsername">Username</label>
+                        <input 
+                            type="text" 
+                            id="manualUsername" 
+                            placeholder="Enter your username"
+                            tabindex="0"
+                            class="input-field"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="manualPassword">Password</label>
+                        <input 
+                            type="password" 
+                            id="manualPassword" 
+                            placeholder="Enter your password (or leave blank if none)"
+                            tabindex="0"
+                            class="input-field"
+                        >
+                    </div>
+                    <div class="button-group">
+                        <button id="manualLoginBtn" class="btn btn-primary" tabindex="0">Login</button>
+                        <button id="cancelManualLoginBtn" class="btn btn-secondary" tabindex="0">Back</button>
+                    </div>
+                </div>
+                
+                <!-- Quick Connect Form -->
+                <div id="manualQuickConnectForm" style="display: none;">
+                    <div class="quick-connect-instructions">
+                        <p>To sign in, open the Jellyfin app on your phone or computer and enter this code:</p>
+                        <div id="manualQuickConnectCode" class="quick-connect-code">------</div>
+                        <div id="manualQuickConnectStatus" class="quick-connect-status">Waiting for authentication...</div>
+                    </div>
+                    <div class="button-group">
+                        <button id="cancelManualQuickConnectBtn" class="btn btn-secondary" tabindex="0">Back</button>
+                    </div>
                 </div>
             </div>
 
@@ -147,24 +197,44 @@
                         userCards[currentIndex + 1].focus();
                     }
                     return;
-                } else if (evt.keyCode === 40) { // Down arrow - go to back button
+                } else if (evt.keyCode === 40) { // Down arrow - go to buttons
                     evt.preventDefault();
-                    var backBtn = document.getElementById('backToServerBtn');
-                    if (backBtn && backBtn.offsetParent !== null) {
-                        backBtn.focus();
+                    var addAccountBtn = document.getElementById('addAccountBtn');
+                    if (addAccountBtn && addAccountBtn.offsetParent !== null) {
+                        addAccountBtn.focus();
+                    } else {
+                        var backBtn = document.getElementById('backToServerBtn');
+                        if (backBtn && backBtn.offsetParent !== null) {
+                            backBtn.focus();
+                        }
                     }
                     return;
                 }
             }
             
-            // Handle back to server button navigation
-            if (activeElement && activeElement.id === 'backToServerBtn') {
-                if (evt.keyCode === 38) { // Up arrow - go to user row
+            // Handle Add Account and Back to Server button navigation (horizontal)
+            if (activeElement && (activeElement.id === 'addAccountBtn' || activeElement.id === 'backToServerBtn')) {
+                if (evt.keyCode === 37) { // Left arrow
+                    evt.preventDefault();
+                    var addAccountBtn = document.getElementById('addAccountBtn');
+                    if (activeElement.id === 'backToServerBtn' && addAccountBtn && addAccountBtn.offsetParent !== null) {
+                        addAccountBtn.focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 39) { // Right arrow
+                    evt.preventDefault();
+                    var backBtn = document.getElementById('backToServerBtn');
+                    if (activeElement.id === 'addAccountBtn' && backBtn && backBtn.offsetParent !== null) {
+                        backBtn.focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow - go to user row if exists
                     evt.preventDefault();
                     var userCards = document.querySelectorAll('.user-card');
                     if (userCards.length > 0) {
                         userCards[0].focus();
                     }
+                    // If no user cards, stay on button
                     return;
                 }
             }
@@ -199,6 +269,121 @@
                 }
             }
             
+            // Handle manual login method buttons (horizontal)
+            var manualMethodButtons = [
+                document.getElementById('useManualPasswordBtn'),
+                document.getElementById('useManualQuickConnectBtn')
+            ].filter(function(btn) { return btn && btn.offsetParent !== null; });
+            
+            var manualMethodButtonIndex = manualMethodButtons.indexOf(activeElement);
+            if (manualMethodButtonIndex !== -1) {
+                if (evt.keyCode === 37) { // Left arrow
+                    evt.preventDefault();
+                    if (manualMethodButtonIndex > 0) {
+                        manualMethodButtons[manualMethodButtonIndex - 1].focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 39) { // Right arrow
+                    evt.preventDefault();
+                    if (manualMethodButtonIndex < manualMethodButtons.length - 1) {
+                        manualMethodButtons[manualMethodButtonIndex + 1].focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 40) { // Down arrow - go to form below
+                    evt.preventDefault();
+                    var manualUsernameInput = document.getElementById('manualUsername');
+                    if (manualUsernameInput && manualUsernameInput.offsetParent !== null) {
+                        manualUsernameInput.focus();
+                    }
+                    return;
+                }
+            }
+            
+            // Handle manual login form fields (vertical navigation)
+            if (activeElement && activeElement.id === 'manualUsername') {
+                if (evt.keyCode === 40) { // Down arrow
+                    evt.preventDefault();
+                    var manualPassword = document.getElementById('manualPassword');
+                    if (manualPassword && manualPassword.offsetParent !== null) {
+                        manualPassword.focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow
+                    evt.preventDefault();
+                    var useManualPasswordBtn = document.getElementById('useManualPasswordBtn');
+                    var useManualQuickConnectBtn = document.getElementById('useManualQuickConnectBtn');
+                    if (useManualQuickConnectBtn && useManualQuickConnectBtn.offsetParent !== null) {
+                        useManualQuickConnectBtn.focus();
+                    } else if (useManualPasswordBtn && useManualPasswordBtn.offsetParent !== null) {
+                        useManualPasswordBtn.focus();
+                    }
+                    return;
+                }
+            }
+            
+            if (activeElement && activeElement.id === 'manualPassword') {
+                if (evt.keyCode === 40) { // Down arrow
+                    evt.preventDefault();
+                    var manualLoginBtn = document.getElementById('manualLoginBtn');
+                    if (manualLoginBtn && manualLoginBtn.offsetParent !== null) {
+                        manualLoginBtn.focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow
+                    evt.preventDefault();
+                    var manualUsername = document.getElementById('manualUsername');
+                    if (manualUsername && manualUsername.offsetParent !== null) {
+                        manualUsername.focus();
+                    }
+                    return;
+                }
+            }
+            
+            // Handle manual login buttons (horizontal)
+            var manualLoginButtons = [
+                document.getElementById('manualLoginBtn'),
+                document.getElementById('cancelManualLoginBtn')
+            ].filter(function(btn) { return btn && btn.offsetParent !== null; });
+            
+            var manualLoginButtonIndex = manualLoginButtons.indexOf(activeElement);
+            if (manualLoginButtonIndex !== -1) {
+                if (evt.keyCode === 37) { // Left arrow
+                    evt.preventDefault();
+                    if (manualLoginButtonIndex > 0) {
+                        manualLoginButtons[manualLoginButtonIndex - 1].focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 39) { // Right arrow
+                    evt.preventDefault();
+                    if (manualLoginButtonIndex < manualLoginButtons.length - 1) {
+                        manualLoginButtons[manualLoginButtonIndex + 1].focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow - go to password field
+                    evt.preventDefault();
+                    var manualPassword = document.getElementById('manualPassword');
+                    if (manualPassword && manualPassword.offsetParent !== null) {
+                        manualPassword.focus();
+                    }
+                    return;
+                }
+            }
+            
+            // Handle manual Quick Connect back button (should navigate up to method buttons)
+            if (activeElement && activeElement.id === 'cancelManualQuickConnectBtn') {
+                if (evt.keyCode === 38) { // Up arrow
+                    evt.preventDefault();
+                    var useManualPasswordBtn = document.getElementById('useManualPasswordBtn');
+                    var useManualQuickConnectBtn = document.getElementById('useManualQuickConnectBtn');
+                    if (useManualPasswordBtn && useManualPasswordBtn.offsetParent !== null) {
+                        useManualPasswordBtn.focus();
+                    } else if (useManualQuickConnectBtn && useManualQuickConnectBtn.offsetParent !== null) {
+                        useManualQuickConnectBtn.focus();
+                    }
+                    return;
+                }
+            }
+            
             // Handle server connection buttons (horizontal)
             var serverButtons = [
                 document.getElementById('connectBtn'),
@@ -222,6 +407,28 @@
                 }
             }
             
+            // Handle password form input field
+            if (activeElement && activeElement.id === 'password') {
+                if (evt.keyCode === 40) { // Down arrow
+                    evt.preventDefault();
+                    var loginBtn = document.getElementById('loginBtn');
+                    if (loginBtn && loginBtn.offsetParent !== null) {
+                        loginBtn.focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow
+                    evt.preventDefault();
+                    var usePasswordBtn = document.getElementById('usePasswordBtn');
+                    var useQuickConnectBtn = document.getElementById('useQuickConnectBtn');
+                    if (useQuickConnectBtn && useQuickConnectBtn.offsetParent !== null) {
+                        useQuickConnectBtn.focus();
+                    } else if (usePasswordBtn && usePasswordBtn.offsetParent !== null) {
+                        usePasswordBtn.focus();
+                    }
+                    return;
+                }
+            }
+            
             // Handle password form buttons (horizontal)
             var passwordButtons = [
                 document.getElementById('loginBtn'),
@@ -240,6 +447,28 @@
                     evt.preventDefault();
                     if (passwordButtonIndex < passwordButtons.length - 1) {
                         passwordButtons[passwordButtonIndex + 1].focus();
+                    }
+                    return;
+                } else if (evt.keyCode === 38) { // Up arrow - go to password field
+                    evt.preventDefault();
+                    var passwordInput = document.getElementById('password');
+                    if (passwordInput && passwordInput.offsetParent !== null) {
+                        passwordInput.focus();
+                    }
+                    return;
+                }
+            }
+            
+            // Handle Quick Connect cancel button (should navigate up to method buttons)
+            if (activeElement && activeElement.id === 'cancelQuickConnectBtn') {
+                if (evt.keyCode === 38) { // Up arrow
+                    evt.preventDefault();
+                    var usePasswordBtn = document.getElementById('usePasswordBtn');
+                    var useQuickConnectBtn = document.getElementById('useQuickConnectBtn');
+                    if (usePasswordBtn && usePasswordBtn.offsetParent !== null) {
+                        usePasswordBtn.focus();
+                    } else if (useQuickConnectBtn && useQuickConnectBtn.offsetParent !== null) {
+                        useQuickConnectBtn.focus();
                     }
                     return;
                 }

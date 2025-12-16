@@ -13,7 +13,6 @@ body {
 
 body {
     font-size: 28px;
-    font-family: -apple-system, "Helvetica", system-ui, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
     background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
     color: #ffffff;
     overflow-y: auto;
@@ -457,10 +456,13 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 40px;
+    /* Hide the broken img element */
+    color: transparent;
 }
 
 .selected-user-avatar.no-image::before {
     content: '👤';
+    color: #00a4dc;
 }
 
 .selected-user-name {

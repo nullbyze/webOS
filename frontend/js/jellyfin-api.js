@@ -354,6 +354,8 @@ var JellyfinAPI = (function() {
     function logout() {
         Logger.info('Logging out and clearing stored credentials');
         storage.remove('jellyfin_auth');
+        // Also clear auto-login data on logout
+        storage.remove('last_login');
         Logger.success('Logout complete');
     }
 
@@ -570,7 +572,6 @@ var JellyfinAPI = (function() {
                 if (callback) callback(null, response);
             },
             error: function(err) {
-                Logger.error('Failed to check Quick Connect status:', err);
                 if (callback) callback(err, null);
             }
         });
@@ -589,11 +590,6 @@ var JellyfinAPI = (function() {
                 Secret: secret
             },
             success: function(response) {
-                Logger.success('Quick Connect authentication successful!', {
-                    user: response.User.Name,
-                    userId: response.User.Id
-                });
-                
                 // Store credentials
                 var authData = {
                     serverAddress: serverAddress,
@@ -609,7 +605,6 @@ var JellyfinAPI = (function() {
                 if (callback) callback(null, response);
             },
             error: function(err) {
-                Logger.error('Quick Connect authentication failed:', err);
                 if (callback) callback(err, null);
             }
         });
@@ -624,10 +619,12 @@ var JellyfinAPI = (function() {
         var params = {
             Limit: 50, // ITEM_LIMIT_RESUME
             Recursive: true,
-            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,MediaSourceCount,ProductionYear,ChildCount,RecursiveItemCount',
+            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,MediaSourceCount,ProductionYear,ChildCount,RecursiveItemCount,Overview',
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb',
-            MediaTypes: 'Video'
+            MediaTypes: 'Video',
+            SortBy: 'DatePlayed',
+            SortOrder: 'Descending'
         };
         
         var endpoint = '/Users/' + userId + '/Items/Resume';
@@ -652,7 +649,7 @@ var JellyfinAPI = (function() {
         
         var params = {
             Limit: 50, // ITEM_LIMIT_NEXT_UP
-            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,MediaSourceCount,ProductionYear,ChildCount,RecursiveItemCount',
+            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,MediaSourceCount,ProductionYear,ChildCount,RecursiveItemCount,Overview',
             UserId: userId,
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb'
@@ -673,6 +670,81 @@ var JellyfinAPI = (function() {
     }
 
     /**
+     * Get merged Continue Watching (Resume + Next Up) items
+     * Combines resume items and next up episodes, removes duplicates,
+     * and sorts by last played date (most recent first)
+     */
+    function getMergedContinueWatching(serverAddress, userId, accessToken, callback) {
+        Logger.info('Fetching merged continue watching items for userId:', userId);
+        
+        var resumeComplete = false;
+        var nextUpComplete = false;
+        var resumeItems = [];
+        var nextUpItems = [];
+        var errors = [];
+        
+        // Fetch resume items
+        getResumeItems(serverAddress, userId, accessToken, function(err, data) {
+            if (err) {
+                errors.push(err);
+            } else if (data && data.Items) {
+                resumeItems = data.Items;
+            }
+            resumeComplete = true;
+            checkComplete();
+        });
+        
+        // Fetch next up items
+        getNextUpItems(serverAddress, userId, accessToken, function(err, data) {
+            if (err) {
+                errors.push(err);
+            } else if (data && data.Items) {
+                nextUpItems = data.Items;
+            }
+            nextUpComplete = true;
+            checkComplete();
+        });
+        
+        function checkComplete() {
+            if (!resumeComplete || !nextUpComplete) return;
+            
+            if (errors.length > 0 && resumeItems.length === 0 && nextUpItems.length === 0) {
+                Logger.error('Failed to get merged continue watching:', errors[0]);
+                callback(errors[0], null);
+                return;
+            }
+            
+            // Combine items, prioritizing resume items (current episode)
+            var itemMap = {};
+            var mergedItems = [];
+            
+            // Add resume items first (they take precedence)
+            resumeItems.forEach(function(item) {
+                itemMap[item.Id] = true;
+                mergedItems.push(item);
+            });
+            
+            // Add next up items if not already in resume
+            nextUpItems.forEach(function(item) {
+                if (!itemMap[item.Id]) {
+                    itemMap[item.Id] = true;
+                    mergedItems.push(item);
+                }
+            });
+            
+            // Sort by last played date (most recent first)
+            mergedItems.sort(function(a, b) {
+                var dateA = a.UserData && a.UserData.LastPlayedDate ? new Date(a.UserData.LastPlayedDate) : new Date(0);
+                var dateB = b.UserData && b.UserData.LastPlayedDate ? new Date(b.UserData.LastPlayedDate) : new Date(0);
+                return dateB - dateA;
+            });
+            
+            Logger.success('Merged continue watching items retrieved:', mergedItems.length, '(', resumeItems.length, 'resume +', nextUpItems.length - (mergedItems.length - resumeItems.length), 'next up)');
+            callback(null, { Items: mergedItems });
+        }
+    }
+
+    /**
      * Get latest media items for a library
      */
     function getLatestMedia(serverAddress, userId, accessToken, parentId, includeItemTypes, callback) {
@@ -680,7 +752,7 @@ var JellyfinAPI = (function() {
         
         var params = {
             Limit: 50,
-            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,ProductionYear,ChildCount,RecursiveItemCount',
+            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,ProductionYear,ChildCount,RecursiveItemCount,Overview',
             ParentId: parentId,
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb'
@@ -804,7 +876,7 @@ var JellyfinAPI = (function() {
         var params = {
             UserId: userId,
             Limit: 50,
-            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo',
+            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,Overview',
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb',
             SortBy: 'DateCreated',
@@ -836,7 +908,7 @@ var JellyfinAPI = (function() {
             Limit: 50,
             IncludeItemTypes: 'BoxSet',
             Recursive: true,
-            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,ChildCount',
+            Fields: 'PrimaryImageAspectRatio,BasicSyncInfo,ChildCount,Overview',
             ImageTypeLimit: 1,
             EnableImageTypes: 'Primary,Backdrop,Thumb',
             SortBy: 'SortName',
@@ -873,6 +945,7 @@ var JellyfinAPI = (function() {
         getItems: getItems,
         getResumeItems: getResumeItems,
         getNextUpItems: getNextUpItems,
+        getMergedContinueWatching: getMergedContinueWatching,
         getLatestMedia: getLatestMedia,
         getLiveTVInfo: getLiveTVInfo,
         getLiveTVChannels: getLiveTVChannels,
