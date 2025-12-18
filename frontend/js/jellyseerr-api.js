@@ -2513,6 +2513,76 @@ var JellyseerrAPI = (function() {
                 });
         },
 
+        /**
+         * Get movie recommendations
+         * 
+         * @param {number} movieId - TMDB movie ID
+         * @param {Object} options - Query options
+         * @param {number} options.page - Page number (default: 1)
+         * @param {string} options.language - Language code (default: 'en')
+         * @returns {Promise<Object>} Paginated movie recommendations
+         */
+        getRecommendationsMovies: function(movieId, options) {
+            options = options || {};
+            
+            if (!movieId) {
+                return Promise.reject(new Error('Movie ID is required'));
+            }
+            
+            var page = options.page || 1;
+            var language = options.language || 'en';
+            
+            var endpoint = '/movie/' + movieId + '/recommendations?page=' + page + '&language=' + language;
+            
+            return makeRequest(endpoint, { method: 'GET' })
+                .then(function(response) {
+                    Logger.info('Retrieved movie recommendations for ID:', movieId, 'page:', page);
+                    return {
+                        page: response.page || page,
+                        totalPages: response.totalPages || 1,
+                        totalResults: response.totalResults || 0,
+                        results: (response.results || []).map(function(item) {
+                            return JellyseerrModels.createDiscoverItem(item);
+                        })
+                    };
+                });
+        },
+
+        /**
+         * Get TV show recommendations
+         * 
+         * @param {number} tvId - TMDB TV show ID
+         * @param {Object} options - Query options
+         * @param {number} options.page - Page number (default: 1)
+         * @param {string} options.language - Language code (default: 'en')
+         * @returns {Promise<Object>} Paginated TV show recommendations
+         */
+        getRecommendationsTv: function(tvId, options) {
+            options = options || {};
+            
+            if (!tvId) {
+                return Promise.reject(new Error('TV show ID is required'));
+            }
+            
+            var page = options.page || 1;
+            var language = options.language || 'en';
+            
+            var endpoint = '/tv/' + tvId + '/recommendations?page=' + page + '&language=' + language;
+            
+            return makeRequest(endpoint, { method: 'GET' })
+                .then(function(response) {
+                    Logger.info('Retrieved TV show recommendations for ID:', tvId, 'page:', page);
+                    return {
+                        page: response.page || page,
+                        totalPages: response.totalPages || 1,
+                        totalResults: response.totalResults || 0,
+                        results: (response.results || []).map(function(item) {
+                            return JellyseerrModels.createDiscoverItem(item);
+                        })
+                    };
+                });
+        },
+
         // ==================== Details Endpoints ====================
 
         /**
