@@ -20,6 +20,21 @@ var JellyseerrDetailsController = (function() {
     
     var elements = {};
     var selectedSeasons = [];
+    
+    // Pagination state
+    var recommendationsPagination = {
+        currentPage: 0,
+        totalPages: 1,
+        hasMore: true,
+        isLoading: false
+    };
+    
+    var similarPagination = {
+        currentPage: 0,
+        totalPages: 1,
+        hasMore: true,
+        isLoading: false
+    };
 
     /**
      * Initialize the controller
@@ -147,7 +162,10 @@ var JellyseerrDetailsController = (function() {
             overview: document.getElementById('overview'),
             castSection: document.getElementById('castSection'),
             castList: document.getElementById('castList'),
+            recommendationsSection: document.getElementById('recommendationsSection'),
+            recommendationsList: document.getElementById('recommendationsList'),
             similarSection: document.getElementById('similarSection'),
+            similarTitle: document.getElementById('similarTitle'),
             similarList: document.getElementById('similarList'),
             seasonModal: document.getElementById('seasonModal'),
             seasonList: document.getElementById('seasonList'),
@@ -219,7 +237,9 @@ var JellyseerrDetailsController = (function() {
                 fullDetails = details;
                 mediaData = details;
                 renderMediaDetails();
+                updateSimilarTitle();
                 loadCast();
+                loadRecommendations();
                 loadSimilar();
             })
             .catch(function(error) {
@@ -468,29 +488,191 @@ var JellyseerrDetailsController = (function() {
     }
 
     /**
-     * Load similar content
+     * Update similar section title based on media type
      */
-    function loadSimilar() {
-        var similarPromise = mediaType === 'movie'
-            ? JellyseerrAPI.getSimilarMovies(mediaId)
-            : JellyseerrAPI.getSimilarTv(mediaId);
+    function updateSimilarTitle() {
+        if (elements.similarTitle) {
+            elements.similarTitle.textContent = mediaType === 'tv' ? 'Similar Series' : 'Similar Titles';
+        }
+    }
+
+    /**
+     * Load recommendations with pagination support
+     */
+    function loadRecommendations(page) {
+        page = page || 1;
         
-        similarPromise
+        if (recommendationsPagination.isLoading) {
+            console.log('[Jellyseerr Details] Already loading recommendations, skipping');
+            return Promise.resolve();
+        }
+        
+        console.log('[Jellyseerr Details] Loading recommendations page:', page, 'mediaType:', mediaType, 'mediaId:', mediaId);
+        recommendationsPagination.isLoading = true;
+        
+        var recommendationsPromise = mediaType === 'movie'
+            ? JellyseerrAPI.getRecommendationsMovies(mediaId, { page: page })
+            : JellyseerrAPI.getRecommendationsTv(mediaId, { page: page });
+        
+        return recommendationsPromise
             .then(function(response) {
-                var results = response.results || [];
-                if (results.length === 0) {
+                console.log('[Jellyseerr Details] Recommendations page', page, 'loaded successfully:', response);
+                recommendationsPagination.isLoading = false;
+                
+                if (!response.results || response.results.length === 0) {
+                    if (page === 1) {
+                        recommendationsPagination.hasMore = false;
+                    }
                     return;
                 }
                 
-                elements.similarSection.style.display = 'block';
-                elements.similarList.innerHTML = '';
+                // Update pagination state
+                recommendationsPagination.currentPage = page;
+                recommendationsPagination.totalPages = response.totalPages || 1;
+                recommendationsPagination.hasMore = page < response.totalPages;
                 
-                results.slice(0, 10).forEach(function(item) {
+                // Show section on first load
+                if (page === 1) {
+                    elements.recommendationsSection.style.display = 'block';
+                    elements.recommendationsList.innerHTML = '';
+                }
+                
+                // Add cards
+                response.results.forEach(function(item) {
+                    var card = createRecommendationCard(item);
+                    elements.recommendationsList.appendChild(card);
+                });
+            })
+            .catch(function(error) {
+                console.error('[Jellyseerr Details] Failed to load recommendations:', error);
+                
+                // Check if session expired
+                if (error && error.message && error.message.indexOf('Session expired') !== -1) {
+                    console.log('[Jellyseerr Details] Session expired during recommendations load, attempting recovery');
+                    
+                    // Keep loading flag true during retry to prevent duplicate attempts
+                    // Try to re-initialize session and retry this page
+                    JellyseerrAPI.handleSessionExpiration(function() {
+                        console.log('[Jellyseerr Details] Session re-initialized, retrying recommendations page', page);
+                        // Reset loading flag before retry
+                        recommendationsPagination.isLoading = false;
+                        return loadRecommendations(page);
+                    }, 'Recommendations Load')
+                        .then(function() {
+                            console.log('[Jellyseerr Details] Retry successful for recommendations page', page);
+                        })
+                        .catch(function(retryError) {
+                            console.error('[Jellyseerr Details] Retry failed for recommendations page', page, retryError);
+                            // Only stop pagination after retry fails
+                            recommendationsPagination.isLoading = false;
+                            recommendationsPagination.hasMore = false;
+                        });
+                } else {
+                    // For other errors, stop pagination
+                    recommendationsPagination.isLoading = false;
+                    recommendationsPagination.hasMore = false;
+                }
+            });
+    }
+
+    /**
+     * Create a recommendation card
+     */
+    function createRecommendationCard(item) {
+        var card = document.createElement('div');
+        card.className = 'recommendations-card';
+        card.tabIndex = 0;
+        
+        if (item.posterPath) {
+            var poster = document.createElement('img');
+            poster.className = 'recommendations-poster';
+            poster.src = ImageHelper.getTMDBImageUrl(item.posterPath, 'w500');
+            poster.alt = item.title || item.name;
+            card.appendChild(poster);
+        }
+        
+        var title = document.createElement('div');
+        title.className = 'recommendations-title';
+        title.textContent = item.title || item.name || 'Unknown';
+        card.appendChild(title);
+        
+        card.addEventListener('click', function() {
+            window.location.href = 'jellyseerr-details.html?type=' + item.mediaType + '&id=' + item.id;
+        });
+        
+        card.addEventListener('keydown', function(e) {
+            if (e.keyCode === KeyCodes.ENTER) {
+                e.preventDefault();
+                window.location.href = 'jellyseerr-details.html?type=' + item.mediaType + '&id=' + item.id;
+            }
+            handleRecommendationsKeyDown(e);
+        });
+        
+        return card;
+    }
+
+    /**
+     * Load similar content with pagination support
+     */
+    function loadSimilar(page) {
+        page = page || 1;
+        
+        if (similarPagination.isLoading) {
+            return Promise.resolve();
+        }
+        
+        similarPagination.isLoading = true;
+        
+        var similarPromise = mediaType === 'movie'
+            ? JellyseerrAPI.getSimilarMovies(mediaId, { page: page })
+            : JellyseerrAPI.getSimilarTv(mediaId, { page: page });
+        
+        return similarPromise
+            .then(function(response) {
+                similarPagination.isLoading = false;
+                
+                if (!response.results || response.results.length === 0) {
+                    if (page === 1) {
+                        similarPagination.hasMore = false;
+                    }
+                    return;
+                }
+                
+                // Update pagination state
+                similarPagination.currentPage = page;
+                similarPagination.totalPages = response.totalPages || 1;
+                similarPagination.hasMore = page < response.totalPages;
+                
+                // Show section on first load
+                if (page === 1) {
+                    elements.similarSection.style.display = 'block';
+                    elements.similarList.innerHTML = '';
+                }
+                
+                // Add cards
+                response.results.forEach(function(item) {
                     var card = createSimilarCard(item);
                     elements.similarList.appendChild(card);
                 });
             })
             .catch(function(error) {
+                console.error('[Jellyseerr Details] Failed to load similar content:', error);
+                similarPagination.isLoading = false;
+                
+                // Check if session expired
+                if (error && error.message && error.message.indexOf('Session expired') !== -1) {
+                    console.log('[Jellyseerr Details] Session expired during similar load');
+                    // Stop trying to load more to prevent infinite loop
+                    similarPagination.hasMore = false;
+                    
+                    // Try to re-initialize session for next time
+                    JellyseerrAPI.handleSessionExpiration(function() {
+                        console.log('[Jellyseerr Details] Session re-initialized after similar error');
+                    }, 'Similar Load');
+                } else {
+                    // For other errors, stop pagination
+                    similarPagination.hasMore = false;
+                }
             });
     }
 
@@ -869,10 +1051,51 @@ var JellyseerrDetailsController = (function() {
     }
     
     /**
+     * Check if we should load more recommendations
+     */
+    function checkRecommendationsLoadMore(currentIndex, totalItems) {
+        if (!recommendationsPagination.hasMore || recommendationsPagination.isLoading) {
+            return;
+        }
+        
+        var itemsFromEnd = totalItems - currentIndex - 1;
+        
+        // Load more when within 3 items of the end
+        if (itemsFromEnd <= 3) {
+            console.log('[Jellyseerr Details] Loading more recommendations, page:', recommendationsPagination.currentPage + 1);
+            loadRecommendations(recommendationsPagination.currentPage + 1);
+        }
+    }
+    
+    /**
+     * Check if we should load more similar content
+     */
+    function checkSimilarLoadMore(currentIndex, totalItems) {
+        if (!similarPagination.hasMore || similarPagination.isLoading) {
+            return;
+        }
+        
+        var itemsFromEnd = totalItems - currentIndex - 1;
+        
+        // Load more when within 3 items of the end
+        if (itemsFromEnd <= 3) {
+            console.log('[Jellyseerr Details] Loading more similar content, page:', similarPagination.currentPage + 1);
+            loadSimilar(similarPagination.currentPage + 1);
+        }
+    }
+    
+    /**
      * Get cast cards
      */
     function getCastCards() {
         return Array.from(document.querySelectorAll('.cast-card'));
+    }
+    
+    /**
+     * Get recommendations cards
+     */
+    function getRecommendationsCards() {
+        return Array.from(document.querySelectorAll('.recommendations-card'));
     }
     
     /**
@@ -1002,8 +1225,13 @@ var JellyseerrDetailsController = (function() {
                 
             case KeyCodes.DOWN:
                 evt.preventDefault();
+                var recommendationsCards = getRecommendationsCards();
                 var similarCards = getSimilarCards();
-                if (similarCards.length > 0) {
+                if (recommendationsCards.length > 0) {
+                    focusManager.currentSection = 'recommendations';
+                    focusManager.currentIndex = 0;
+                    recommendationsCards[0].focus();
+                } else if (similarCards.length > 0) {
                     focusManager.currentSection = 'similar';
                     focusManager.currentIndex = 0;
                     similarCards[0].focus();
@@ -1013,24 +1241,30 @@ var JellyseerrDetailsController = (function() {
     }
     
     /**
-     * Handle similar section keyboard navigation
+     * Handle recommendations section keyboard navigation
      */
-    function handleSimilarKeyDown(evt) {
-        var similarCards = getSimilarCards();
-        var currentIndex = similarCards.indexOf(document.activeElement);
+    function handleRecommendationsKeyDown(evt) {
+        var recommendationsCards = getRecommendationsCards();
+        var currentIndex = recommendationsCards.indexOf(document.activeElement);
+        
+        // Check if we should load more items
+        checkRecommendationsLoadMore(currentIndex, recommendationsCards.length);
         
         switch (evt.keyCode) {
             case KeyCodes.LEFT:
                 evt.preventDefault();
                 if (currentIndex > 0) {
-                    similarCards[currentIndex - 1].focus();
+                    recommendationsCards[currentIndex - 1].focus();
                 }
                 break;
                 
             case KeyCodes.RIGHT:
                 evt.preventDefault();
-                if (currentIndex < similarCards.length - 1) {
-                    similarCards[currentIndex + 1].focus();
+                if (currentIndex < recommendationsCards.length - 1) {
+                    recommendationsCards[currentIndex + 1].focus();
+                } else {
+                    // At the end, check if more items can be loaded
+                    checkRecommendationsLoadMore(currentIndex, recommendationsCards.length);
                 }
                 break;
                 
@@ -1047,6 +1281,70 @@ var JellyseerrDetailsController = (function() {
                     var buttons = getActionButtons();
                     if (buttons.length > 0) {
                         buttons[0].focus();
+                    }
+                }
+                break;
+                
+            case KeyCodes.DOWN:
+                evt.preventDefault();
+                var similarCards = getSimilarCards();
+                if (similarCards.length > 0) {
+                    focusManager.currentSection = 'similar';
+                    focusManager.currentIndex = 0;
+                    similarCards[0].focus();
+                }
+                break;
+        }
+    }
+
+    /**
+     * Handle similar section keyboard navigation
+     */
+    function handleSimilarKeyDown(evt) {
+        var similarCards = getSimilarCards();
+        var currentIndex = similarCards.indexOf(document.activeElement);
+        
+        // Check if we should load more items
+        checkSimilarLoadMore(currentIndex, similarCards.length);
+        
+        switch (evt.keyCode) {
+            case KeyCodes.LEFT:
+                evt.preventDefault();
+                if (currentIndex > 0) {
+                    similarCards[currentIndex - 1].focus();
+                }
+                break;
+                
+            case KeyCodes.RIGHT:
+                evt.preventDefault();
+                if (currentIndex < similarCards.length - 1) {
+                    similarCards[currentIndex + 1].focus();
+                } else {
+                    // At the end, check if more items can be loaded
+                    checkSimilarLoadMore(currentIndex, similarCards.length);
+                }
+                break;
+                
+            case KeyCodes.UP:
+                evt.preventDefault();
+                var recommendationsCards = getRecommendationsCards();
+                if (recommendationsCards.length > 0) {
+                    focusManager.currentSection = 'recommendations';
+                    focusManager.currentIndex = 0;
+                    recommendationsCards[0].focus();
+                } else {
+                    var castCards = getCastCards();
+                    if (castCards.length > 0) {
+                        focusManager.currentSection = 'cast';
+                        focusManager.currentIndex = 0;
+                        castCards[0].focus();
+                    } else {
+                        focusManager.currentSection = 'buttons';
+                        focusManager.currentIndex = 0;
+                        var buttons = getActionButtons();
+                        if (buttons.length > 0) {
+                            buttons[0].focus();
+                        }
                     }
                 }
                 break;

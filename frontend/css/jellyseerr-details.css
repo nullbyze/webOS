@@ -340,6 +340,67 @@ body {
     color: #888;
 }
 
+/* Recommendations Section */
+.recommendations-section {
+    padding: 0;
+}
+
+.recommendations-scroller {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.recommendations-scroller::-webkit-scrollbar {
+    display: none;
+}
+
+.recommendations-list {
+    display: flex;
+    gap: 20px;
+    padding: 20px 60px 30px 60px;
+}
+
+.recommendations-card {
+    flex-shrink: 0;
+    width: 200px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+    outline: none;
+    position: relative;
+}
+
+.recommendations-card:focus {
+    transform: scale(1.08);
+}
+
+.recommendations-card:focus .recommendations-poster {
+    border-color: #ffffff;
+}
+
+.recommendations-poster {
+    width: 100%;
+    height: 300px;
+    object-fit: cover;
+    display: block;
+    border-radius: 8px;
+    border: 3px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.recommendations-title {
+    padding: 8px 0;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 500;
+    color: #ffffff;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Similar Section */
 .similar-section {
     padding: 0;
@@ -368,14 +429,14 @@ body {
     cursor: pointer;
     transition: transform 0.2s ease;
     outline: none;
-    border-radius: 12px;
-    overflow: hidden;
     position: relative;
-    border: 2px solid rgba(255, 255, 255, 0.2);
 }
 
 .similar-card:focus {
     transform: scale(1.08);
+}
+
+.similar-card:focus .similar-poster {
     border-color: #ffffff;
 }
 
@@ -384,15 +445,21 @@ body {
     height: 300px;
     object-fit: cover;
     display: block;
+    border-radius: 8px;
+    border: 3px solid transparent;
+    transition: border-color 0.2s ease;
 }
 
 .similar-title {
-    padding: 12px;
+    padding: 8px 0;
     background: transparent;
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 500;
     color: #ffffff;
     text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Season Modal */
