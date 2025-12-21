@@ -434,12 +434,37 @@ body {
 /* Video Info Modal Specific Styles */
 .video-info-modal {
     max-width: 900px;
+    max-height: 80vh;
 }
 
 .video-info-content {
     display: flex;
     flex-direction: column;
     gap: 25px;
+    max-height: 60vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 10px;
+    outline: none;
+}
+
+/* Scrollbar styling for video info content */
+.video-info-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.video-info-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.video-info-content::-webkit-scrollbar-thumb {
+    background: rgba(0, 164, 220, 0.6);
+    border-radius: 4px;
+}
+
+.video-info-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 164, 220, 0.8);
 }
 
 .info-section {
@@ -481,6 +506,37 @@ body {
     font-weight: 700;
     color: #fff;
     text-align: right;
+}
+
+/* HDR/Dolby Vision highlight */
+.info-row.info-highlight {
+    background: linear-gradient(90deg, rgba(138, 43, 226, 0.15) 0%, rgba(0, 164, 220, 0.15) 100%);
+    border-radius: 6px;
+    padding: 15px 12px;
+    border: 1px solid rgba(138, 43, 226, 0.4);
+}
+
+.info-row.info-highlight .info-label {
+    color: #b57bff;
+    font-weight: 700;
+}
+
+.info-row.info-highlight .info-value {
+    color: #00d4ff;
+    font-weight: 800;
+}
+
+/* Warning for dropped frames/stalls */
+.info-row.info-warning {
+    background: rgba(255, 193, 7, 0.1);
+    border-radius: 6px;
+    padding: 15px 12px;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.info-row.info-warning .info-label,
+.info-row.info-warning .info-value {
+    color: #ffc107;
 }
 
 .video-info-footer {
