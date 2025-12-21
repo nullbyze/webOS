@@ -521,6 +521,33 @@ var PlayerController = (function() {
      * @param {KeyboardEvent} evt - Keyboard event
      */
     function handleModalKeyDown(evt) {
+        // Special handling for video info modal - scroll instead of navigating items
+        if (activeModal === 'videoInfo') {
+            switch (evt.keyCode) {
+                case KeyCodes.UP:
+                    evt.preventDefault();
+                    if (elements.videoInfoContent) {
+                        elements.videoInfoContent.scrollTop -= 60; // Scroll up
+                    }
+                    break;
+                    
+                case KeyCodes.DOWN:
+                    evt.preventDefault();
+                    if (elements.videoInfoContent) {
+                        elements.videoInfoContent.scrollTop += 60; // Scroll down
+                    }
+                    break;
+                    
+                case KeyCodes.BACK:
+                case KeyCodes.ESC:
+                    evt.preventDefault();
+                    closeModal();
+                    break;
+            }
+            return;
+        }
+        
+        // Standard modal navigation for other modals
         currentModalFocusIndex = TrackSelector.handleModalKeyDown(
             evt,
             modalFocusableItems,
@@ -657,22 +684,37 @@ var PlayerController = (function() {
             MaxStaticBitrate: 100000000,
             MusicStreamingTranscodingBitrate: 384000,
             DirectPlayProfiles: [
-                { Container: 'mp4', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,ac3' },
-                { Container: 'mkv', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,ac3' }
+                // HEVC/H.265 with Dolby Vision and HDR10 support
+                { Container: 'mp4', Type: 'Video', VideoCodec: 'hevc,h264,avc', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd,flac' },
+                { Container: 'mkv', Type: 'Video', VideoCodec: 'hevc,h264,avc', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd,flac' },
+                // Explicitly list Dolby Vision profiles (dvhe/dvh1)
+                { Container: 'mp4', Type: 'Video', VideoCodec: 'dvhe,dvh1', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd' },
+                { Container: 'mkv', Type: 'Video', VideoCodec: 'dvhe,dvh1', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd' }
             ],
             TranscodingProfiles: [
-                { Container: 'ts', Type: 'Video', AudioCodec: 'aac,mp3', VideoCodec: 'h264', Protocol: 'hls', Context: 'Streaming', MaxAudioChannels: '6' },
+                { Container: 'ts', Type: 'Video', AudioCodec: 'aac,mp3,ac3', VideoCodec: 'h264', Protocol: 'hls', Context: 'Streaming', MaxAudioChannels: '6' },
                 { Container: 'mp4', Type: 'Video', AudioCodec: 'aac,mp3', VideoCodec: 'h264', Context: 'Static' }
             ],
             ContainerProfiles: [],
             CodecProfiles: [
                 {
                     Type: 'Video',
+                    Codec: 'h264',
                     Conditions: [
                         { Condition: 'LessThanEqual', Property: 'Width', Value: '1920' },
                         { Condition: 'LessThanEqual', Property: 'Height', Value: '1080' },
                         { Condition: 'LessThanEqual', Property: 'VideoFramerate', Value: '60' },
                         { Condition: 'LessThanEqual', Property: 'VideoBitrate', Value: '40000000' }
+                    ]
+                },
+                {
+                    Type: 'Video',
+                    Codec: 'hevc',
+                    Conditions: [
+                        { Condition: 'LessThanEqual', Property: 'Width', Value: '3840' },
+                        { Condition: 'LessThanEqual', Property: 'Height', Value: '2160' },
+                        { Condition: 'LessThanEqual', Property: 'VideoFramerate', Value: '60' },
+                        { Condition: 'LessThanEqual', Property: 'VideoBitrate', Value: '100000000' }
                     ]
                 },
                 {
@@ -718,9 +760,17 @@ var PlayerController = (function() {
         var videoStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Video'; }) : null;
         var audioStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Audio'; }) : null;
         
-        var safeVideoCodecs = ['h264', 'avc'];
-        var safeAudioCodecs = ['aac', 'mp3'];
-        var safeContainers = ['mp4'];
+        // Check if this is a Dolby Vision or HDR file
+        var isDolbyVision = videoStream && videoStream.Codec && 
+            (videoStream.Codec.toLowerCase().startsWith('dvhe') || videoStream.Codec.toLowerCase().startsWith('dvh1'));
+        var isHEVC10bit = videoStream && videoStream.Codec && 
+            (videoStream.Codec.toLowerCase() === 'hevc' || videoStream.Codec.toLowerCase().startsWith('hev1') || 
+             videoStream.Codec.toLowerCase().startsWith('hvc1')) && 
+            videoStream.BitDepth === 10;
+        
+        var safeVideoCodecs = ['h264', 'avc', 'hevc', 'h265', 'hev1', 'hvc1', 'dvhe', 'dvh1'];
+        var safeAudioCodecs = ['aac', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'flac'];
+        var safeContainers = ['mp4', 'mkv'];
         
         // Check if media source has a pre-configured transcoding URL (for Live TV)
         if (mediaSource.TranscodingUrl) {
@@ -751,20 +801,35 @@ var PlayerController = (function() {
             videoStream && videoStream.Codec && safeVideoCodecs.indexOf(videoStream.Codec.toLowerCase()) !== -1 &&
             audioStream && audioStream.Codec && safeAudioCodecs.indexOf(audioStream.Codec.toLowerCase()) !== -1) {
             
-            streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream';
-            params.append('Static', 'true');
-            var container = mediaSource.Container || 'mp4';
-            mimeType = 'video/' + container;
-            useDirectPlay = true;
-            isTranscoding = false;
+            // For Dolby Vision and HDR10 (10-bit HEVC), prefer streaming over static file
+            // This ensures Shaka Player + MSE is used for proper hardware decoding
+            if ((isDolbyVision || isHEVC10bit) && mediaSource.SupportsDirectStream) {
+                console.log('[Player] Using direct stream for HDR content to enable hardware decoding');
+                streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream.mp4';
+                params.append('Static', 'false');
+                params.append('MediaSourceId', mediaSource.Id);
+                params.append('VideoCodec', videoStream.Codec);
+                params.append('AudioCodec', audioStream.Codec);
+                mimeType = 'video/mp4';
+                useDirectPlay = false;  // Use Shaka Player, not native
+                isTranscoding = false;
+            } else {
+                // Standard direct play for H.264/AVC content
+                streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream';
+                params.append('Static', 'true');
+                var container = mediaSource.Container || 'mp4';
+                mimeType = 'video/' + container;
+                useDirectPlay = true;
+                isTranscoding = false;
+            }
         } else if (mediaSource.SupportsTranscoding) {
             streamUrl = auth.serverAddress + '/Videos/' + itemId + '/master.m3u8';
             params.append('VideoCodec', 'h264');
             params.append('AudioCodec', 'aac');
-            params.append('VideoBitrate', '10000000');
+            params.append('VideoBitrate', '20000000');  // Increased for better quality
             params.append('AudioBitrate', '256000');
-            params.append('MaxWidth', '1920');
-            params.append('MaxHeight', '1080');
+            params.append('MaxWidth', '3840');  // Support 4K transcoding
+            params.append('MaxHeight', '2160');
             params.append('SegmentLength', '6');
             params.append('MinSegments', '3');
             params.append('BreakOnNonKeyFrames', 'false');
@@ -1871,10 +1936,10 @@ var PlayerController = (function() {
             PlaySessionId: newPlaySessionId,  // New session ID
             VideoCodec: 'h264',
             AudioCodec: 'aac',
-            VideoBitrate: '10000000',
+            VideoBitrate: '20000000',  // Increased for better quality
             AudioBitrate: '256000',
-            MaxWidth: '1920',
-            MaxHeight: '1080',
+            MaxWidth: '3840',  // Support 4K transcoding
+            MaxHeight: '2160',
             SegmentLength: '6',
             MinSegments: '3',
             BreakOnNonKeyFrames: 'false'
@@ -1947,6 +2012,66 @@ var PlayerController = (function() {
 
         var infoHtml = '<div class="info-section">';
         
+        // Get real-time playback stats from player adapter
+        var liveStats = null;
+        if (playerAdapter && typeof playerAdapter.getPlaybackStats === 'function') {
+            liveStats = playerAdapter.getPlaybackStats();
+        }
+        
+        // Show live playback information first if available (what's actually playing)
+        if (liveStats) {
+            infoHtml += '<div class="info-header">Active Playback</div>';
+            
+            // Show HDR status prominently
+            if (liveStats.hdrType && liveStats.hdrType !== 'SDR') {
+                infoHtml += '<div class="info-row info-highlight"><span class="info-label">HDR:</span><span class="info-value">' + liveStats.hdrType + '</span></div>';
+            }
+            
+            // Show actual video codec being decoded
+            if (liveStats.videoCodec) {
+                var codecDisplay = liveStats.videoCodec.split('.')[0].toUpperCase();
+                if (liveStats.videoCodec.startsWith('dvhe') || liveStats.videoCodec.startsWith('dvh1')) {
+                    codecDisplay = 'DOLBY VISION (' + liveStats.videoCodec + ')';
+                } else if (liveStats.videoCodec.startsWith('hev1') || liveStats.videoCodec.startsWith('hvc1')) {
+                    codecDisplay = 'HEVC (' + liveStats.videoCodec + ')';
+                }
+                infoHtml += '<div class="info-row"><span class="info-label">Video Codec:</span><span class="info-value">' + codecDisplay + '</span></div>';
+            }
+            
+            // Show actual resolution being played
+            if (liveStats.width && liveStats.height) {
+                var resolution = liveStats.width + 'x' + liveStats.height;
+                var resolutionName = '';
+                if (liveStats.height >= 2160) resolutionName = ' (4K)';
+                else if (liveStats.height >= 1080) resolutionName = ' (1080p)';
+                else if (liveStats.height >= 720) resolutionName = ' (720p)';
+                infoHtml += '<div class="info-row"><span class="info-label">Playing:</span><span class="info-value">' + resolution + resolutionName + '</span></div>';
+            }
+            
+            // Show actual bitrate
+            if (liveStats.bandwidth) {
+                var bitrateMbps = (liveStats.bandwidth / 1000000).toFixed(1);
+                infoHtml += '<div class="info-row"><span class="info-label">Stream Bitrate:</span><span class="info-value">' + bitrateMbps + ' Mbps</span></div>';
+            }
+            
+            // Show audio codec
+            if (liveStats.audioCodec) {
+                var audioCodecDisplay = liveStats.audioCodec.split('.')[0].toUpperCase();
+                infoHtml += '<div class="info-row"><span class="info-label">Audio Codec:</span><span class="info-value">' + audioCodecDisplay + '</span></div>';
+            }
+            
+            // Show performance stats if there are issues
+            if (liveStats.droppedFrames > 0) {
+                infoHtml += '<div class="info-row info-warning"><span class="info-label">Dropped Frames:</span><span class="info-value">' + liveStats.droppedFrames + '</span></div>';
+            }
+            
+            if (liveStats.stallsDetected > 0) {
+                infoHtml += '<div class="info-row info-warning"><span class="info-label">Stalls:</span><span class="info-value">' + liveStats.stallsDetected + '</span></div>';
+            }
+            
+            infoHtml += '</div><div class="info-section">';
+        }
+        
         infoHtml += '<div class="info-header">Playback Method</div>';
         var mediaSource = playbackInfo.MediaSources[0];
         if (mediaSource.SupportsDirectPlay && !mediaSource.SupportsTranscoding) {
@@ -1989,7 +2114,7 @@ var PlayerController = (function() {
             
             if (videoStream) {
                 infoHtml += '</div><div class="info-section">';
-                infoHtml += '<div class="info-header">Video</div>';
+                infoHtml += '<div class="info-header">Video (Source File)</div>';
                 
                 if (videoStream.DisplayTitle) {
                     infoHtml += '<div class="info-row"><span class="info-label">Stream:</span><span class="info-value">' + videoStream.DisplayTitle + '</span></div>';
@@ -1997,6 +2122,11 @@ var PlayerController = (function() {
                 
                 if (videoStream.Codec) {
                     infoHtml += '<div class="info-row"><span class="info-label">Codec:</span><span class="info-value">' + videoStream.Codec.toUpperCase() + '</span></div>';
+                }
+                
+                // Show codec profile if available (helps identify Dolby Vision profile)
+                if (videoStream.Profile) {
+                    infoHtml += '<div class="info-row"><span class="info-label">Profile:</span><span class="info-value">' + videoStream.Profile + '</span></div>';
                 }
                 
                 if (videoStream.Width && videoStream.Height) {
@@ -2015,8 +2145,20 @@ var PlayerController = (function() {
                     infoHtml += '<div class="info-row"><span class="info-label">Bitrate:</span><span class="info-value">' + videoBitrateMbps + ' Mbps</span></div>';
                 }
                 
+                // Highlight HDR information from source file
                 if (videoStream.VideoRange) {
-                    infoHtml += '<div class="info-row"><span class="info-label">Range:</span><span class="info-value">' + videoStream.VideoRange.toUpperCase() + '</span></div>';
+                    var rangeDisplay = videoStream.VideoRange.toUpperCase();
+                    var cssClass = (videoStream.VideoRange.toLowerCase() !== 'sdr') ? 'info-row info-highlight' : 'info-row';
+                    infoHtml += '<div class="' + cssClass + '"><span class="info-label">Range:</span><span class="info-value">' + rangeDisplay + '</span></div>';
+                }
+                
+                // Show color space and bit depth if available
+                if (videoStream.ColorSpace) {
+                    infoHtml += '<div class="info-row"><span class="info-label">Color Space:</span><span class="info-value">' + videoStream.ColorSpace + '</span></div>';
+                }
+                
+                if (videoStream.BitDepth) {
+                    infoHtml += '<div class="info-row"><span class="info-label">Bit Depth:</span><span class="info-value">' + videoStream.BitDepth + '-bit</span></div>';
                 }
                 
                 if (videoStream.AverageFrameRate || videoStream.RealFrameRate) {
@@ -2065,6 +2207,15 @@ var PlayerController = (function() {
         elements.videoInfoContent.innerHTML = infoHtml;
         elements.videoInfoModal.style.display = 'flex';
         activeModal = 'videoInfo';
+        
+        // Make the content scrollable with remote control
+        // Use the content container itself as the focusable element for scrolling
+        setTimeout(function() {
+            if (elements.videoInfoContent) {
+                elements.videoInfoContent.setAttribute('tabindex', '0');
+                elements.videoInfoContent.focus();
+            }
+        }, 100);
         
     }
 
