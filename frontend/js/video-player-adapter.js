@@ -938,14 +938,34 @@ class VideoPlayerFactory {
     /**
      * Create a video player adapter with automatic capability detection
      * @param {HTMLVideoElement} videoElement - Video element to use
+     * @param {Object} options - Creation options
+     * @param {boolean} options.preferWebOS - Prefer WebOS native adapter for HDR/Dolby Vision
+     * @param {boolean} options.preferHTML5 - Prefer HTML5 video element for direct files
      * @returns {Promise<VideoPlayerAdapter>} Initialized player adapter
      */
-    static async createPlayer(videoElement) {
-        const adapters = [
+    static async createPlayer(videoElement, options = {}) {
+        // Determine adapter priority based on playback needs
+        let adapters = [
             ShakaPlayerAdapter,
             WebOSVideoAdapter,
             HTML5VideoAdapter
         ];
+
+        if (options.preferWebOS) {
+            // For Dolby Vision: WebOS native > Shaka > HTML5
+            adapters = [
+                WebOSVideoAdapter,
+                ShakaPlayerAdapter,
+                HTML5VideoAdapter
+            ];
+        } else if (options.preferHTML5) {
+            // For direct files: HTML5 > Shaka > WebOS
+            adapters = [
+                HTML5VideoAdapter,
+                ShakaPlayerAdapter,
+                WebOSVideoAdapter
+            ];
+        }
 
         for (const AdapterClass of adapters) {
             try {

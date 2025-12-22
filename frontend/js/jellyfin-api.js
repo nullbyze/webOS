@@ -235,6 +235,9 @@ var JellyfinAPI = (function() {
                 if (finalCallback) finalCallback(null, response);
             },
             error: function(err) {
+                if (isAuthenticationError(err) && !isPublic) {
+                    handleAuthenticationError(err, address);
+                }
                 Logger.error('Failed to get system info:', err);
                 if (finalCallback) finalCallback(err, null);
             }
@@ -549,6 +552,9 @@ var JellyfinAPI = (function() {
                 if (callback) callback(null, response);
             },
             error: function(err) {
+                if (isAuthenticationError(err)) {
+                    handleAuthenticationError(err, serverAddress);
+                }
                 Logger.error('Failed to get user views:', err);
                 if (callback) callback(err, null);
             }
@@ -650,6 +656,42 @@ var JellyfinAPI = (function() {
         });
     }
 
+    /**
+     * Check if error indicates invalid/expired credentials (401 Unauthorized)
+     * @param {Object} err - Error object from ajax request
+     * @returns {boolean} True if credentials are invalid
+     */
+    function isAuthenticationError(err) {
+        return err && (err.error === 401 || err.status === 401);
+    }
+
+    /**
+     * Handle 401 authentication errors - clear invalid credentials
+     * @param {Object} err - Error object
+     * @param {string} serverAddress - Server URL where auth failed
+     */
+    function handleAuthenticationError(err, serverAddress) {
+        Logger.error('[API] Authentication failed (401) for server:', serverAddress);
+        Logger.warn('[API] Access token may be invalid or expired - credentials will be cleared');
+        
+        // Invalidate the stored auth for this server
+        if (typeof MultiServerManager !== 'undefined' && serverAddress) {
+            var auth = getStoredAuth();
+            if (auth && auth.serverAddress === serverAddress) {
+                // Find and remove this user from MultiServerManager
+                var servers = MultiServerManager.getAllServersArray();
+                var matchingServer = servers.find(function(s) {
+                    return s.url === serverAddress && s.accessToken === auth.accessToken;
+                });
+                
+                if (matchingServer) {
+                    Logger.warn('[API] Removing invalid credentials for:', matchingServer.username);
+                    MultiServerManager.removeServer(matchingServer.serverId, matchingServer.userId);
+                }
+            }
+        }
+    }
+
     function getPublicUsers(serverAddress, callback) {
         var endpoint = serverAddress + '/Users/Public';
         
@@ -663,6 +705,9 @@ var JellyfinAPI = (function() {
                 if (callback) callback(null, response);
             },
             error: function(err) {
+                if (isAuthenticationError(err)) {
+                    handleAuthenticationError(err, serverAddress);
+                }
                 Logger.error('Failed to get public users:', err);
                 if (callback) callback(err, null);
             }
@@ -1528,6 +1573,8 @@ var JellyfinAPI = (function() {
         logout: logout,
         getStoredAuth: getStoredAuth,
         getAuthHeader: getAuthHeader,
+        isAuthenticationError: isAuthenticationError,
+        handleAuthenticationError: handleAuthenticationError,
         Logger: Logger,
         LOG_LEVELS: LOG_LEVELS
     };

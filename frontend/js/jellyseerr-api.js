@@ -27,30 +27,107 @@ var JellyseerrAPI = (function() {
     // ==================== Logger ====================
     
     const Logger = {
+        levels: LOG_LEVELS,
         setLevel: function(level) {
             currentLogLevel = level;
         },
-        debug: function(message, data) {
+        _ts: function() {
+            try { return new Date().toISOString(); } catch (e) { return '';
+            }
+        },
+        _sanitize: function(args) {
+            function maskString(str) {
+                if (typeof str !== 'string') return str;
+                // Mask tokens/keys that look long
+                if (str.length > 12) return str.slice(0, 6) + '…' + str.slice(-4);
+                return str;
+            }
+            function sanitizeValue(val) {
+                if (val === null || val === undefined) return val;
+                if (typeof val === 'string') return maskString(val);
+                if (Array.isArray(val)) return val.map(sanitizeValue);
+                if (typeof val === 'object') {
+                    const out = {};
+                    for (const k in val) {
+                        if (!Object.prototype.hasOwnProperty.call(val, k)) continue;
+                        const keyLower = ('' + k).toLowerCase();
+                        if (keyLower.includes('password') || keyLower.includes('token') || keyLower.includes('apikey') || keyLower === 'authorization') {
+                            out[k] = '***';
+                        } else {
+                            out[k] = sanitizeValue(val[k]);
+                        }
+                    }
+                    return out;
+                }
+                return val;
+            }
+            try {
+                return (args || []).map(sanitizeValue);
+            } catch (e) {
+                return args;
+            }
+        },
+        _log: function(consoleMethod, levelName, message, args) {
+            const prefix = '[Jellyseerr][' + levelName + '][' + this._ts() + ']';
+            try {
+                const sanitized = this._sanitize(args);
+                // Use Function.prototype.apply to preserve proper console formatting
+                consoleMethod.apply(console, [prefix, message].concat(sanitized));
+            } catch (e) {
+                // Fallback to basic logging
+                consoleMethod(prefix + ' ' + message);
+            }
+        },
+        debug: function(message, ...args) {
             if (currentLogLevel >= LOG_LEVELS.DEBUG) {
+                this._log(console.debug || console.log, 'DEBUG', message, args);
             }
         },
-        info: function(message, data) {
+        info: function(message, ...args) {
             if (currentLogLevel >= LOG_LEVELS.INFO) {
+                this._log(console.log, 'INFO', message, args);
             }
         },
-        success: function(message, data) {
+        success: function(message, ...args) {
             if (currentLogLevel >= LOG_LEVELS.SUCCESS) {
+                // success as info level, different tag
+                this._log(console.log, 'SUCCESS', message, args);
             }
         },
-        warn: function(message, data) {
+        warn: function(message, ...args) {
             if (currentLogLevel >= LOG_LEVELS.WARN) {
+                this._log(console.warn || console.log, 'WARN', message, args);
             }
         },
-        error: function(message, data) {
+        error: function(message, ...args) {
             if (currentLogLevel >= LOG_LEVELS.ERROR) {
+                this._log(console.error || console.log, 'ERROR', message, args);
             }
         }
     };
+
+    // Initialize log level from query param or localStorage for easier debugging
+    try {
+        var desiredLevel;
+        if (typeof window !== 'undefined' && window.location && window.location.search) {
+            var params = new URLSearchParams(window.location.search);
+            if (params.has('jellyseerrDebug')) {
+                desiredLevel = LOG_LEVELS.DEBUG;
+            }
+        }
+        if (!desiredLevel && typeof localStorage !== 'undefined') {
+            var storedLevel = localStorage.getItem('jellyseerrLogLevel');
+            if (storedLevel && LOG_LEVELS[storedLevel.toUpperCase()] !== undefined) {
+                desiredLevel = LOG_LEVELS[storedLevel.toUpperCase()];
+            }
+        }
+        if (desiredLevel !== undefined) {
+            currentLogLevel = desiredLevel;
+            Logger.info('Log level set from settings:', desiredLevel);
+        }
+    } catch (e) {
+        // ignore
+    }
 
     // ==================== Luna Service Bridge ====================
     
@@ -510,8 +587,9 @@ var JellyseerrAPI = (function() {
                 Logger.debug('Response: ' + status + ' ' + url);
 
                 if (status === 0) {
-                    // Network error or CORS issue
-                    reject(new Error('Network error or CORS issue'));
+                    // Network error or CORS issue (commonly server unreachable/down)
+                    Logger.error('No response (status 0). Server unreachable or CORS). URL:', url);
+                    reject(new Error('Network error: server unreachable or CORS issue'));
                     return;
                 }
 
@@ -888,6 +966,11 @@ var JellyseerrAPI = (function() {
             xhr.onreadystatechange = function() {
                 if (xhr.readyState === XMLHttpRequest.DONE) {
                     // Handle response
+                    if (xhr.status === 0) {
+                        Logger.error('No response (status 0). Server unreachable or CORS). URL:', url);
+                        reject(new Error('Network error: server unreachable or CORS issue'));
+                        return;
+                    }
                     if (xhr.status >= 200 && xhr.status < 300) {
                         Logger.success('Request succeeded: ' + method + ' ' + endpoint + ' (Status: ' + xhr.status + ')');
                         
@@ -1104,6 +1187,15 @@ var JellyseerrAPI = (function() {
             var hasAuth = JellyseerrPreferences.hasAuth();
             if (!hasAuth) {
                 Logger.warn('Jellyseerr enabled but not authenticated');
+                try {
+                    var method = JellyseerrPreferences.get('authMethod');
+                    var key = JellyseerrPreferences.get('apiKey');
+                    var keyInfo = key ? ('present(' + key.length + ')') : 'missing';
+                    var cookies = (this.hasCookies && typeof this.hasCookies === 'function') ? this.hasCookies() : false;
+                    Logger.info('Auth diagnostics - method:', method, 'apiKey:', keyInfo, 'hasCookies():', cookies, 'proxyServiceAvailable:', proxyServiceAvailable);
+                } catch (e) {
+                    // ignore
+                }
                 return Promise.resolve(false);
             }
             
@@ -1437,11 +1529,13 @@ var JellyseerrAPI = (function() {
             // Use service for login if available to capture cookies
             var loginPromise;
             if (proxyServiceAvailable) {
+                Logger.info('LoginWithJellyfin using Luna proxy service');
                 loginPromise = makeRequest('/auth/jellyfin', {
                     method: 'POST',
                     body: loginBody
                 });
             } else {
+                Logger.info('LoginWithJellyfin using direct XHR (no proxy service)');
                 loginPromise = makeUnauthenticatedRequest('/auth/jellyfin', {
                     method: 'POST',
                     body: loginBody
@@ -1453,6 +1547,7 @@ var JellyseerrAPI = (function() {
                 
                 // Success - return user
                 sessionAuthenticated = true;
+                Logger.success('Jellyfin SSO login succeeded');
                 
                 // Check for API key/token in response
                 var token = null;
@@ -1465,6 +1560,12 @@ var JellyseerrAPI = (function() {
                 
                 if (token) {
                     apiKey = token;
+                    Logger.info('API key/token received (length):', token.length);
+                } else {
+                    Logger.info('No API key in response; relying on session cookies');
+                    if (!proxyServiceAvailable) {
+                        Logger.warn('No proxy service available; browser cannot read Set-Cookie headers. hasCookies() may be false even if session works.');
+                    }
                 }
                 
                 return {
@@ -1475,6 +1576,7 @@ var JellyseerrAPI = (function() {
                 // 401 - Server not configured yet, retry with hostname
                 if (error && error.status === 401) {
                     loginBody.hostname = jellyfinUrl;
+                    Logger.warn('401 on Jellyfin SSO without hostname; retrying with hostname:', jellyfinUrl);
                     
                     var retryPromise;
                     if (proxyServiceAvailable) {
@@ -1492,6 +1594,7 @@ var JellyseerrAPI = (function() {
                     return retryPromise.then(function(response) {
                         var user = response.data || response;
                         sessionAuthenticated = true;
+                        Logger.success('Jellyfin SSO login (with hostname) succeeded');
                         
                         var token = null;
                         if (response.token) token = response.token;
@@ -1503,6 +1606,12 @@ var JellyseerrAPI = (function() {
                         
                         if (token) {
                             apiKey = token;
+                            Logger.info('API key/token received (length):', token.length);
+                        } else {
+                            Logger.info('No API key in response; relying on session cookies');
+                            if (!proxyServiceAvailable) {
+                                Logger.warn('No proxy service available; browser cannot read Set-Cookie headers. hasCookies() may be false even if session works.');
+                            }
                         }
                         
                         return {
@@ -1523,6 +1632,7 @@ var JellyseerrAPI = (function() {
                 
                 // Other errors
                 var errorMsg = error.message || error.error || 'Unknown error';
+                Logger.error('Jellyfin SSO login error:', errorMsg);
                 throw new Error('Jellyfin login failed: ' + errorMsg);
             });
         },
