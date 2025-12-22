@@ -39,6 +39,9 @@ var PlayerController = (function() {
     let currentMediaSource = null;
     let isTranscoding = false;
     let currentPlaybackSpeed = 1.0;
+    let isDolbyVisionMedia = false; // Track if current media is Dolby Vision
+    let willUseDirectPlay = false; // Track if we plan to use direct play before loading
+    let playbackHealthCheckTimer = null; // Timer for checking playback health
     const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     let bitrateUpdateInterval = null;
     
@@ -91,12 +94,13 @@ var PlayerController = (function() {
         }
         
         hasTriedTranscode = true;
+        willUseDirectPlay = false; // Reset flag since we're switching to transcoding
         
         var modifiedSource = Object.assign({}, mediaSource);
         modifiedSource.SupportsDirectPlay = false;
         
         clearLoadingTimeout();
-        startPlayback(modifiedSource);
+        startPlayback(modifiedSource).catch(onError);
         return true;
     }
     
@@ -151,7 +155,8 @@ var PlayerController = (function() {
 
         cacheElements();
         setupEventListeners();
-        initializePlayerAdapter();
+        // Initialize playback flow (adapter will be created once playback method is known)
+        loadItemAndPlay();
     }
 
     function getItemIdFromUrl() {
@@ -302,6 +307,17 @@ var PlayerController = (function() {
             elements.qualityBtn.addEventListener('click', showQualitySelector);
         }
 
+        // Skip button
+        if (elements.skipButton) {
+            elements.skipButton.addEventListener('click', executeSkip);
+            elements.skipButton.addEventListener('keydown', function(evt) {
+                if (evt.keyCode === KeyCodes.ENTER) {
+                    evt.preventDefault();
+                    executeSkip();
+                }
+            });
+        }
+
         // Show controls on any interaction
         document.addEventListener('mousemove', showControls);
         document.addEventListener('click', showControls);
@@ -320,13 +336,27 @@ var PlayerController = (function() {
         }
     }
 
-    async function initializePlayerAdapter() {
+    async function ensurePlayerAdapter(options = {}) {
         try {
+            // Reuse adapter if it already matches the preference
+            if (playerAdapter) {
+                const name = playerAdapter.getName();
+                if (options.preferWebOS && name === 'WebOSVideo') {
+                    return;
+                }
+                if (options.preferHTML5 && name === 'HTML5Video') {
+                    return;
+                }
+                if (!options.preferWebOS && !options.preferHTML5 && name === 'ShakaPlayer') {
+                    return;
+                }
+                await playerAdapter.destroy();
+            }
+
             showLoading();
             console.log('[Player] Initializing video player adapter');
-            
-            // Create the best available player adapter
-            playerAdapter = await VideoPlayerFactory.createPlayer(videoPlayer);
+
+            playerAdapter = await VideoPlayerFactory.createPlayer(videoPlayer, options);
             console.log('[Player] Using adapter:', playerAdapter.getName());
             
             // Setup adapter event listeners
@@ -352,28 +382,9 @@ var PlayerController = (function() {
             playerAdapter.on('audiotrackchange', function(data) {
                 detectCurrentAudioTrack();
             });
-            
-            
-            // Now load the item and start playback
-            loadItemAndPlay();
-            
-            // Load skip segments (next episode will be loaded after item loads)
-            loadMediaSegments();
-            
         } catch (error) {
             alert('Failed to initialize video player: ' + error.message);
             window.history.back();
-        }
-        
-        // Skip button event listeners
-        if (elements.skipButton) {
-            elements.skipButton.addEventListener('click', executeSkip);
-            elements.skipButton.addEventListener('keydown', function(evt) {
-                if (evt.keyCode === KeyCodes.ENTER) {
-                    evt.preventDefault();
-                    executeSkip();
-                }
-            });
         }
     }
 
@@ -646,9 +657,22 @@ var PlayerController = (function() {
             success: function(response) {
                 playbackInfo = response;
                 
+                // Detect if this is Dolby Vision content and set flag for adapter selection
+                if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
+                    var mediaSource = playbackInfo.MediaSources[0];
+                    var videoStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Video'; }) : null;
+                    
+                    isDolbyVisionMedia = videoStream && videoStream.Codec && 
+                        (videoStream.Codec.toLowerCase().startsWith('dvhe') || videoStream.Codec.toLowerCase().startsWith('dvh1'));
+                    
+                    if (isDolbyVisionMedia) {
+                        console.log('[Player] Dolby Vision media detected, will use WebOS native adapter if available');
+                    }
+                }
+                
                 // Start playback
                 if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
-                    startPlayback(playbackInfo.MediaSources[0]);
+                    startPlayback(playbackInfo.MediaSources[0]).catch(onError);
                 } else {
                     showErrorDialog(
                         'No Media Sources',
@@ -738,9 +762,10 @@ var PlayerController = (function() {
         };
     }
 
-    function startPlayback(mediaSource) {
+    async function startPlayback(mediaSource) {
         playSessionId = generateUUID();
         currentMediaSource = mediaSource;
+        isDolbyVisionMedia = false; // Reset flag for new playback session
         
         // Populate audio/subtitle streams early so preferences can be applied
         audioStreams = mediaSource.MediaStreams ? mediaSource.MediaStreams.filter(function(s) { return s.Type === 'Audio'; }) : [];
@@ -770,7 +795,7 @@ var PlayerController = (function() {
         
         var safeVideoCodecs = ['h264', 'avc', 'hevc', 'h265', 'hev1', 'hvc1', 'dvhe', 'dvh1'];
         var safeAudioCodecs = ['aac', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'flac'];
-        var safeContainers = ['mp4', 'mkv'];
+        var safeContainers = ['mp4', 'mkv']; // Try direct play first, fallback to HLS if issues detected
         
         // Check if media source has a pre-configured transcoding URL (for Live TV)
         if (mediaSource.TranscodingUrl) {
@@ -801,27 +826,16 @@ var PlayerController = (function() {
             videoStream && videoStream.Codec && safeVideoCodecs.indexOf(videoStream.Codec.toLowerCase()) !== -1 &&
             audioStream && audioStream.Codec && safeAudioCodecs.indexOf(audioStream.Codec.toLowerCase()) !== -1) {
             
-            // For Dolby Vision and HDR10 (10-bit HEVC), prefer streaming over static file
-            // This ensures Shaka Player + MSE is used for proper hardware decoding
-            if ((isDolbyVision || isHEVC10bit) && mediaSource.SupportsDirectStream) {
-                console.log('[Player] Using direct stream for HDR content to enable hardware decoding');
-                streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream.mp4';
-                params.append('Static', 'false');
-                params.append('MediaSourceId', mediaSource.Id);
-                params.append('VideoCodec', videoStream.Codec);
-                params.append('AudioCodec', audioStream.Codec);
-                mimeType = 'video/mp4';
-                useDirectPlay = false;  // Use Shaka Player, not native
-                isTranscoding = false;
-            } else {
-                // Standard direct play for H.264/AVC content
-                streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream';
-                params.append('Static', 'true');
-                var container = mediaSource.Container || 'mp4';
-                mimeType = 'video/' + container;
-                useDirectPlay = true;
-                isTranscoding = false;
-            }
+            // Direct play for MP4/MKV files
+            // Signal that we'll use HTML5 video element (not Shaka) for direct files
+            willUseDirectPlay = true;
+            
+            streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream';
+            params.append('Static', 'true');
+            var container = mediaSource.Container || 'mp4';
+            mimeType = 'video/' + container;
+            useDirectPlay = true;
+            isTranscoding = false;
         } else if (mediaSource.SupportsTranscoding) {
             streamUrl = auth.serverAddress + '/Videos/' + itemId + '/master.m3u8';
             params.append('VideoCodec', 'h264');
@@ -864,11 +878,24 @@ var PlayerController = (function() {
             return;
         }
 
+        // Prepare the correct adapter based on playback method
+        var creationOptions = {};
+        if (isDolbyVision) {
+            creationOptions.preferWebOS = true;
+        } else if (useDirectPlay) {
+            creationOptions.preferHTML5 = true;
+        }
+        await ensurePlayerAdapter(creationOptions);
+
         var videoUrl = streamUrl + '?' + params.toString();
         
         console.log('[Player] Starting playback');
         console.log('[Player] Method:', isLiveTV ? 'Live TV' : (useDirectPlay ? 'Direct Play' : 'Transcode'));
         console.log('[Player] Container:', mediaSource.Container);
+        console.log('[Player] Video Codec:', videoStream ? videoStream.Codec : 'none');
+        if (isDolbyVision || isHEVC10bit) {
+            console.log('[Player] Note: For best Dolby Vision/HDR10 support, transcoding to HLS is recommended');
+        }
         console.log('[Player] URL:', videoUrl.substring(0, 100) + '...');
         
         var startPosition = 0;
@@ -881,19 +908,19 @@ var PlayerController = (function() {
             startPosition = itemData.UserData.PlaybackPositionTicks / TICKS_PER_SECOND;
         }
         
-        var timeoutDuration = useDirectPlay ? DIRECT_PLAY_TIMEOUT_MS : TRANSCODE_TIMEOUT_MS;
-        loadingTimeout = setTimeout(function() {
-            if (loadingState === LoadingState.LOADING) {
-                
-                if (useDirectPlay && attemptTranscodeFallback(mediaSource, 'Loading timeout')) {
-                    alert('Direct playback timed out. Switching to transcoding...');
-                } else {
+        // Setup timeout (smart for direct play, standard for streams)
+        if (useDirectPlay) {
+            setupDirectPlayTimeout(mediaSource);
+        } else {
+            var timeoutDuration = TRANSCODE_TIMEOUT_MS;
+            loadingTimeout = setTimeout(function() {
+                if (loadingState === LoadingState.LOADING) {
                     setLoadingState(LoadingState.ERROR);
                     alert('Video loading timed out. The server may be transcoding or the format is not supported.');
                     window.history.back();
                 }
-            }
-        }, timeoutDuration);
+            }, timeoutDuration);
+        }
         
         setLoadingState(LoadingState.LOADING);
         
@@ -902,17 +929,161 @@ var PlayerController = (function() {
             startPosition: startPosition
         }).then(function() {
             clearLoadingTimeout();
-        }).catch(function(error) {
-            clearLoadingTimeout();
-            
-            if (useDirectPlay && attemptTranscodeFallback(mediaSource, error.message || 'Load error')) {
-                alert('Direct playback failed. Switching to transcoding...');
-            } else {
-                setLoadingState(LoadingState.ERROR);
-                alert('Failed to start playback: ' + (error.message || error));
-                window.history.back();
+            console.log('[Player] Playback loaded successfully (' + (useDirectPlay ? 'direct' : 'stream') + ')');
+            if (useDirectPlay) {
+                startPlaybackHealthCheck(mediaSource);
             }
+        }).catch(function(error) {
+            handlePlaybackLoadError(error, mediaSource, useDirectPlay);
         });
+    }
+    
+    /**
+     * Monitor playback health and fallback to HLS if issues detected
+     * Checks for: stuck playback, no video/audio tracks, stalled buffering
+     */
+    function startPlaybackHealthCheck(mediaSource) {
+        console.log('[Player] Starting playback health check for direct play');
+        
+        // Clear any existing check
+        if (playbackHealthCheckTimer) {
+            clearTimeout(playbackHealthCheckTimer);
+        }
+        
+        var checkCount = 0;
+        var lastTime = videoPlayer.currentTime;
+        
+        function checkHealth() {
+            // Stop checking after 3 attempts or if we're transcoding
+            if (checkCount >= 3 || isTranscoding) {
+                playbackHealthCheckTimer = null;
+                return;
+            }
+            
+            checkCount++;
+            var currentTime = videoPlayer.currentTime;
+            
+            // Check 1: Is playback stuck? (time not advancing)
+            var isStuck = !videoPlayer.paused && currentTime === lastTime && currentTime > 0;
+            
+            // Check 2: Video element in bad state?
+            var isBadState = videoPlayer.error || 
+                            videoPlayer.networkState === HTMLMediaElement.NETWORK_NO_SOURCE ||
+                            (videoPlayer.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !videoPlayer.paused);
+            
+            // Check 3: No video or audio tracks? (for containers with track support)
+            var noTracks = false;
+            if (videoPlayer.videoTracks && videoPlayer.audioTracks) {
+                noTracks = videoPlayer.videoTracks.length === 0 || videoPlayer.audioTracks.length === 0;
+            }
+            
+            if (isStuck || isBadState || noTracks) {
+                console.log('[Player] Playback health issue detected:', {
+                    stuck: isStuck,
+                    badState: isBadState,
+                    noTracks: noTracks,
+                    readyState: videoPlayer.readyState,
+                    networkState: videoPlayer.networkState
+                });
+                
+                playbackHealthCheckTimer = null;
+                if (attemptTranscodeFallback(mediaSource, 'Playback health check failed')) {
+                    console.log('[Player] Falling back to HLS transcoding due to playback issues');
+                }
+            } else {
+                lastTime = currentTime;
+                playbackHealthCheckTimer = setTimeout(checkHealth, 2000); // Check every 2 seconds
+            }
+        }
+        
+        // Start checking after 2 seconds (give it time to start)
+        playbackHealthCheckTimer = setTimeout(checkHealth, 2000);
+    }
+
+    /**
+     * Handle playback load errors with appropriate fallback logic
+     * @param {Error} error - Load error from adapter
+     * @param {Object} mediaSource - Current media source
+     * @param {boolean} isDirectPlay - Whether this was a direct play attempt
+     */
+    function handlePlaybackLoadError(error, mediaSource, isDirectPlay) {
+        clearLoadingTimeout();
+        console.log('[Player] Playback load failed:', error.message);
+        
+        if (isDirectPlay && mediaSource && attemptTranscodeFallback(mediaSource, error.message || 'Load error')) {
+            alert('Direct playback failed. Switching to transcoding...');
+        } else {
+            setLoadingState(LoadingState.ERROR);
+            alert('Failed to start playback: ' + (error.message || error));
+            window.history.back();
+        }
+    }
+    
+    /**
+     * Setup smart timeout for direct play with buffering progress detection
+     * Monitors progress events and extends timeout if buffering is active
+     * @param {Object} mediaSource - Current media source for fallback
+     */
+    function setupDirectPlayTimeout(mediaSource) {
+        var timeoutDuration = DIRECT_PLAY_TIMEOUT_MS;
+        var directPlayStartTime = Date.now();
+        var hasProgressedSinceStart = false;
+        
+        // Create event handlers with closure over mutable flags
+        var onProgress = function() {
+            hasProgressedSinceStart = true;
+            console.log('[Player] Buffering progress detected for direct play');
+        };
+        
+        var onLoadedMetadata = function() {
+            hasProgressedSinceStart = true;
+            console.log('[Player] Media metadata loaded for direct play');
+        };
+        
+        var onCanPlay = function() {
+            hasProgressedSinceStart = true;
+            console.log('[Player] Video ready to play - direct play is working');
+        };
+        
+        // Attach listeners
+        videoPlayer.addEventListener('progress', onProgress);
+        videoPlayer.addEventListener('loadedmetadata', onLoadedMetadata);
+        videoPlayer.addEventListener('canplay', onCanPlay);
+        
+        loadingTimeout = setTimeout(function() {
+            // Clean up listeners immediately to prevent leaks
+            videoPlayer.removeEventListener('progress', onProgress);
+            videoPlayer.removeEventListener('loadedmetadata', onLoadedMetadata);
+            videoPlayer.removeEventListener('canplay', onCanPlay);
+            
+            // Exit if playback already loaded or errored
+            if (loadingState !== LoadingState.LOADING) {
+                return;
+            }
+            
+            // Decision logic based on buffering progress
+            if (!hasProgressedSinceStart) {
+                // No activity in timeout period - network issue
+                var elapsedSeconds = ((Date.now() - directPlayStartTime) / 1000).toFixed(1);
+                console.log('[Player] Direct play timeout after ' + elapsedSeconds + 's (no buffering progress)');
+                if (mediaSource && attemptTranscodeFallback(mediaSource, 'No buffering progress')) {
+                    alert('Direct playback not responding. Switching to transcoding...');
+                }
+            } else {
+                // Buffering started but canplay didn't fire - give it more time
+                console.log('[Player] Direct play buffering but not ready. Extending timeout...');
+                var extendedTimeout = setTimeout(function() {
+                    if (loadingState === LoadingState.LOADING && mediaSource) {
+                        console.log('[Player] Extended timeout reached, switching to transcoding');
+                        if (attemptTranscodeFallback(mediaSource, 'Extended timeout')) {
+                            alert('Direct playback too slow. Switching to transcoding...');
+                        }
+                    }
+                }, 10000); // Additional 10 seconds if buffering detected
+                
+                loadingTimeout = extendedTimeout;
+            }
+        }, timeoutDuration);
     }
 
     // ============================================================================
@@ -1493,6 +1664,12 @@ var PlayerController = (function() {
         stopProgressReporting();
         stopBitrateMonitoring();
         
+        // Clear health check timer
+        if (playbackHealthCheckTimer) {
+            clearTimeout(playbackHealthCheckTimer);
+            playbackHealthCheckTimer = null;
+        }
+        
         window.history.back();
     }
 
@@ -1583,6 +1760,12 @@ var PlayerController = (function() {
             if (seekDebounceTimer) {
                 clearTimeout(seekDebounceTimer);
                 seekDebounceTimer = null;
+            }
+            
+            // Clear health check timer
+            if (playbackHealthCheckTimer) {
+                clearTimeout(playbackHealthCheckTimer);
+                playbackHealthCheckTimer = null;
             }
             
             if (playerAdapter) {

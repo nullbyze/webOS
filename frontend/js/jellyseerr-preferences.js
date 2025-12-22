@@ -295,15 +295,32 @@ var JellyseerrPreferences = (function() {
             var apiKey = this.get('apiKey', userId);
             var authMethod = this.get('authMethod', userId);
 
+            if (typeof JellyseerrAPI !== 'undefined') {
+                var apiKeyInfo = apiKey ? ('present(' + apiKey.length + ')') : 'missing';
+                JellyseerrAPI.Logger.info('[Preferences] hasAuth check - method:', authMethod, 'apiKey:', apiKeyInfo);
+            }
+
             if (authMethod === 'local' || authMethod === 'jellyfin-apikey') {
-                return apiKey && apiKey.length > 0;
+                var byKey = apiKey && apiKey.length > 0;
+                if (typeof JellyseerrAPI !== 'undefined') {
+                    JellyseerrAPI.Logger.info('[Preferences] hasAuth via API key:', byKey);
+                }
+                return byKey;
             }
 
             // For Jellyfin SSO, check if we have cookies
-            if (typeof JellyseerrAPI !== 'undefined' && JellyseerrAPI.hasCookies) {
-                return JellyseerrAPI.hasCookies();
+            if (typeof JellyseerrAPI !== 'undefined') {
+                var hasC = (JellyseerrAPI.hasCookies && typeof JellyseerrAPI.hasCookies === 'function') ? JellyseerrAPI.hasCookies() : false;
+                var isAuthApi = (JellyseerrAPI.isAuthenticated && typeof JellyseerrAPI.isAuthenticated === 'function') ? JellyseerrAPI.isAuthenticated() : false;
+                JellyseerrAPI.Logger.info('[Preferences] hasAuth via cookies:', hasC);
+                JellyseerrAPI.Logger.info('[Preferences] hasAuth via session (isAuthenticated):', isAuthApi);
+                // Treat an active session as authenticated even if cookies aren't readable
+                return hasC || isAuthApi;
             }
 
+            if (typeof JellyseerrAPI !== 'undefined') {
+                JellyseerrAPI.Logger.warn('[Preferences] hasAuth defaulting to false (no JellyseerrAPI context)');
+            }
             return false;
         },
 
