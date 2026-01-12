@@ -142,6 +142,68 @@ body {
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6), 0 0 0 3px rgba(0, 164, 220, 0.3);
 }
 
+/* Trickplay Preview Bubble */
+.trickplay-bubble {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    transform: translateX(-50%);
+    margin-bottom: 16px;
+    background: #282828;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+    z-index: 100;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.trickplay-thumb-container {
+    overflow: hidden;
+}
+
+.trickplay-thumb {
+    background-size: auto auto;
+    background-repeat: no-repeat;
+    background-position: 0 0;
+}
+
+.trickplay-text-container {
+    padding: 8px 12px;
+    text-align: center;
+    background: #282828;
+}
+
+.trickplay-chapter-name {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+    margin-bottom: 2px;
+}
+
+.trickplay-time {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+}
+
+/* Fallback for no trickplay - just show time */
+.trickplay-bubble.no-trickplay {
+    padding: 8px 16px;
+}
+
+.trickplay-bubble.no-trickplay .trickplay-thumb-container {
+    display: none;
+}
+
+.trickplay-bubble.no-trickplay .trickplay-text-container {
+    padding: 0;
+    background: transparent;
+}
+
 .time-info-top {
     display: flex;
     justify-content: flex-end;
