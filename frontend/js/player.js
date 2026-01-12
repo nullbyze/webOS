@@ -2,10 +2,27 @@
  * Player Controller Module
  * Manages video playback, controls, track selection, and playback reporting
  * Supports direct play, transcoding, and Live TV streaming
+ * 
+ * PlaybackManager Integration:
+ * - When USE_PLAYBACK_MANAGER is true, uses jellyfin-web's PlaybackManager for playback
+ * - When false, uses legacy direct video URL loading
+ * - PlaybackManager provides automatic server reporting, profile negotiation, and track management
+ * 
  * @module PlayerController
  */
 var PlayerController = (function() {
     'use strict';
+
+    // ========================================================================
+    // PlaybackManager Integration Toggle
+    // ========================================================================
+    
+    /**
+     * Enable PlaybackManager integration (recommended)
+     * Set to false to use legacy direct playback mode
+     * @constant {boolean}
+     */
+    const USE_PLAYBACK_MANAGER = false; // TODO: Set to true once jellyfin-web is bundled
 
     let auth = null;
     let itemId = null;
@@ -13,6 +30,8 @@ var PlayerController = (function() {
     let videoPlayer = null;
     /** @type {Object|null} Video player adapter (Shaka/webOS/HTML5) */
     let playerAdapter = null;
+    /** @type {Object|null} PlaybackManager adapter when USE_PLAYBACK_MANAGER is enabled */
+    let playbackManagerAdapter = null;
     let controlsVisible = false;
     let controlsTimeout = null;
     let playbackInfo = null;
@@ -158,7 +177,66 @@ var PlayerController = (function() {
 
         cacheElements();
         setupEventListeners();
+        
+        // Initialize PlaybackManager if enabled
+        if (USE_PLAYBACK_MANAGER) {
+            initPlaybackManagerAdapter();
+        }
+        
         loadItemAndPlay();
+    }
+
+    /**
+     * Initialize PlaybackManager adapter with UI callbacks
+     * Called once during player initialization when USE_PLAYBACK_MANAGER is true
+     */
+    function initPlaybackManagerAdapter() {
+        console.log('[Player] Initializing PlaybackManager adapter');
+        
+        if (typeof PlaybackManagerAdapter === 'undefined') {
+            console.error('[Player] PlaybackManagerAdapter not available');
+            return;
+        }
+
+        const callbacks = {
+            onTimeUpdate: function(currentTicks, durationTicks) {
+                updateProgressDisplay(currentTicks / TICKS_PER_SECOND, durationTicks / TICKS_PER_SECOND);
+            },
+            onPause: function() {
+                updatePlayPauseButton(true);
+            },
+            onUnpause: function() {
+                updatePlayPauseButton(false);
+            },
+            onPlaybackStart: function(state) {
+                console.log('[Player] PlaybackManager playback started:', state);
+                hideLoading();
+                startProgressReporting();
+            },
+            onPlaybackStop: function(stopInfo) {
+                console.log('[Player] PlaybackManager playback stopped:', stopInfo);
+                handlePlaybackEnd();
+            },
+            onMediaStreamsChange: function() {
+                console.log('[Player] Media streams changed');
+                if (playbackManagerAdapter) {
+                    loadAudioTracksFromPlaybackManager();
+                    loadSubtitleTracksFromPlaybackManager();
+                }
+            },
+            onError: function(error) {
+                console.error('[Player] PlaybackManager error:', error);
+                showErrorDialog('Playback Error', error.message || 'An error occurred during playback');
+            }
+        };
+
+        playbackManagerAdapter = PlaybackManagerAdapter.init(callbacks);
+        
+        if (!playbackManagerAdapter) {
+            console.error('[Player] Failed to initialize PlaybackManager adapter');
+        } else {
+            console.log('[Player] PlaybackManager adapter initialized successfully');
+        }
     }
 
     function getItemIdFromUrl() {
@@ -777,7 +855,68 @@ var PlayerController = (function() {
         };
     }
 
+    /**
+     * Start playback using PlaybackManager (when USE_PLAYBACK_MANAGER is true)
+     * PlaybackManager handles server negotiation, stream selection, and automatic reporting
+     * @param {Object} mediaSource - Media source from PlaybackInfo
+     */
+    async function startPlaybackViaPlaybackManager(mediaSource) {
+        console.log('[Player] Starting playback via PlaybackManager');
+        
+        if (!playbackManagerAdapter) {
+            console.error('[Player] PlaybackManager adapter not initialized');
+            showErrorDialog('Playback Error', 'PlaybackManager is not available');
+            return;
+        }
+
+        try {
+            showLoading();
+            
+            // Get start position from URL or resume position
+            const startPositionTicks = getStartPositionFromUrl() * TICKS_PER_SECOND || 
+                                      (itemData.UserData && itemData.UserData.PlaybackPositionTicks) || 
+                                      0;
+
+            // PlaybackManager.play() options
+            const playOptions = {
+                items: [itemData],
+                startPositionTicks: startPositionTicks,
+                mediaSourceId: mediaSource.Id,
+                audioStreamIndex: currentAudioIndex >= 0 ? audioStreams[currentAudioIndex].Index : undefined,
+                subtitleStreamIndex: currentSubtitleIndex >= 0 ? subtitleStreams[currentSubtitleIndex].Index : undefined
+            };
+
+            console.log('[Player] PlaybackManager play options:', playOptions);
+
+            // Start playback through adapter
+            const success = await playbackManagerAdapter.play(playOptions);
+            
+            if (!success) {
+                throw new Error('PlaybackManager failed to start playback');
+            }
+
+            // Load tracks from PlaybackManager
+            loadAudioTracksFromPlaybackManager();
+            loadSubtitleTracksFromPlaybackManager();
+            
+            // Initialize player features
+            initializeAudioNormalization();
+            
+            console.log('[Player] PlaybackManager playback started successfully');
+            
+        } catch (error) {
+            console.error('[Player] PlaybackManager playback error:', error);
+            showErrorDialog('Playback Error', error.message || 'Failed to start playback via PlaybackManager');
+        }
+    }
+
     async function startPlayback(mediaSource) {
+        // Use PlaybackManager if enabled
+        if (USE_PLAYBACK_MANAGER) {
+            return startPlaybackViaPlaybackManager(mediaSource);
+        }
+
+        // Legacy direct playback mode
         playSessionId = generateUUID();
         currentMediaSource = mediaSource;
         isDolbyVisionMedia = false; // Reset flag for new playback session
@@ -1213,6 +1352,11 @@ var PlayerController = (function() {
     // ============================================================================
 
     function reportPlaybackStart() {
+        if (USE_PLAYBACK_MANAGER) {
+            console.log('[Player] Skipping manual playback start report (using PlaybackManager)');
+            return;
+        }
+
         makePlaybackRequest(
             auth.serverAddress + '/Sessions/Playing',
             buildPlaybackData(),
@@ -1225,6 +1369,10 @@ var PlayerController = (function() {
 
     function reportPlaybackProgress() {
         if (!playSessionId) return;
+
+        if (USE_PLAYBACK_MANAGER) {
+            return;
+        }
 
         console.log('[Player] Reporting progress to:', auth.serverAddress);
         makePlaybackRequest(
@@ -1246,6 +1394,11 @@ var PlayerController = (function() {
 
     function reportPlaybackStop() {
         if (!playSessionId) return;
+
+        if (USE_PLAYBACK_MANAGER) {
+            console.log('[Player] Skipping manual playback stop report (using PlaybackManager)');
+            return;
+        }
 
         console.log('[Player] Reporting stop to:', auth.serverAddress);
         makePlaybackRequest(
@@ -1878,6 +2031,90 @@ var PlayerController = (function() {
     }
 
     // ============================================================================
+    // PLAYBACKMANAGER TRACK LOADING
+    // ============================================================================
+
+    /**
+     * Load audio tracks from PlaybackManager
+     * Called when USE_PLAYBACK_MANAGER is true
+     */
+    function loadAudioTracksFromPlaybackManager() {
+        if (!playbackManagerAdapter) {
+            console.warn('[Player] PlaybackManager adapter not available');
+            return;
+        }
+
+        const tracks = playbackManagerAdapter.getAudioTracks();
+        if (!tracks || tracks.length === 0) {
+            console.log('[Player] No audio tracks from PlaybackManager');
+            audioStreams = [];
+            return;
+        }
+
+        console.log('[Player] Loaded', tracks.length, 'audio tracks from PlaybackManager');
+        
+        audioStreams = tracks.map(function(track) {
+            return {
+                Index: track.Index,
+                Type: 'Audio',
+                Codec: track.Codec,
+                Language: track.Language,
+                DisplayTitle: track.DisplayTitle || track.Language || 'Track ' + (track.Index + 1),
+                IsDefault: track.IsDefault,
+                Channels: track.Channels,
+                BitRate: track.BitRate
+            };
+        });
+
+        currentAudioIndex = playbackManagerAdapter.getCurrentAudioStreamIndex();
+        if (currentAudioIndex === undefined || currentAudioIndex < 0) {
+            currentAudioIndex = 0;
+        }
+
+        console.log('[Player] Current audio track index:', currentAudioIndex);
+    }
+
+    /**
+     * Load subtitle tracks from PlaybackManager
+     * Called when USE_PLAYBACK_MANAGER is true
+     */
+    function loadSubtitleTracksFromPlaybackManager() {
+        if (!playbackManagerAdapter) {
+            console.warn('[Player] PlaybackManager adapter not available');
+            return;
+        }
+
+        const tracks = playbackManagerAdapter.getSubtitleTracks();
+        if (!tracks || tracks.length === 0) {
+            console.log('[Player] No subtitle tracks from PlaybackManager');
+            subtitleStreams = [];
+            return;
+        }
+
+        console.log('[Player] Loaded', tracks.length, 'subtitle tracks from PlaybackManager');
+        
+        subtitleStreams = tracks.map(function(track) {
+            return {
+                Index: track.Index,
+                Type: 'Subtitle',
+                Codec: track.Codec,
+                Language: track.Language,
+                DisplayTitle: track.DisplayTitle || track.Language || 'Track ' + (track.Index + 1),
+                IsDefault: track.IsDefault,
+                IsForced: track.IsForced,
+                IsExternal: track.DeliveryMethod === 'External'
+            };
+        });
+
+        currentSubtitleIndex = playbackManagerAdapter.getCurrentSubtitleStreamIndex();
+        if (currentSubtitleIndex === undefined) {
+            currentSubtitleIndex = -1; // -1 means off
+        }
+
+        console.log('[Player] Current subtitle track index:', currentSubtitleIndex);
+    }
+
+    // ============================================================================
     // TRACK SELECTION
     // ============================================================================
 
@@ -1948,6 +2185,30 @@ var PlayerController = (function() {
             return;
         }
 
+        if (USE_PLAYBACK_MANAGER && playbackManagerAdapter) {
+            const stream = audioStreams[index];
+            const success = playbackManagerAdapter.setAudioStreamIndex(stream.Index);
+            
+            if (success) {
+                currentAudioIndex = index;
+                console.log('[Player] Audio track changed via PlaybackManager');
+                
+                if (modalFocusableItems && modalFocusableItems.length > 0) {
+                    modalFocusableItems.forEach(function(item) {
+                        item.classList.remove('selected');
+                    });
+                    if (modalFocusableItems[index]) {
+                        modalFocusableItems[index].classList.add('selected');
+                    }
+                }
+                
+                closeModal();
+                return;
+            } else {
+                console.error('[Player] Failed to change audio track via PlaybackManager');
+            }
+        }
+
 
         if (modalFocusableItems && modalFocusableItems.length > 0) {
             modalFocusableItems.forEach(function(item) {
@@ -2003,6 +2264,31 @@ var PlayerController = (function() {
     function selectSubtitleTrack(index) {
         console.log('[Player] Selecting subtitle track:', index === -1 ? 'None' : index);
         
+        if (USE_PLAYBACK_MANAGER && playbackManagerAdapter) {
+            const streamIndex = index >= 0 && index < subtitleStreams.length ? subtitleStreams[index].Index : -1;
+            const success = playbackManagerAdapter.setSubtitleStreamIndex(streamIndex);
+            
+            if (success) {
+                currentSubtitleIndex = index;
+                console.log('[Player] Subtitle track changed via PlaybackManager');
+                
+                // Update UI
+                if (modalFocusableItems && modalFocusableItems.length > 0) {
+                    modalFocusableItems.forEach(function(item) {
+                        item.classList.remove('selected');
+                    });
+                    var modalIndex = index === -1 ? 0 : index + 1; // +1 because "None" is at position 0
+                    if (modalFocusableItems[modalIndex]) {
+                        modalFocusableItems[modalIndex].classList.add('selected');
+                    }
+                }
+                
+                closeModal();
+                return;
+            } else {
+                console.error('[Player] Failed to change subtitle track via PlaybackManager');
+            }
+        }
 
 
         if (modalFocusableItems && modalFocusableItems.length > 0) {
@@ -2812,7 +3098,6 @@ var PlayerController = (function() {
 
     /**
      * Load adjacent episodes (previous and next) for navigation
-     * Following Tizen implementation pattern
      */
     function loadAdjacentEpisodes() {
         console.log('[loadAdjacentEpisodes] START');
