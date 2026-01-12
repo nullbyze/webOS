@@ -139,6 +139,11 @@ var BrowseController = (function() {
     function loadUserLibraries() {
         if (!auth || !auth.serverAddress || !auth.userId) {
             console.error('[browse] Cannot load libraries: auth is invalid');
+            ServerLogger.logAppError('Cannot load libraries: invalid auth', {
+                hasAuth: !!auth,
+                hasServerAddress: auth && !!auth.serverAddress,
+                hasUserId: auth && !!auth.userId
+            });
             window.location.href = 'login.html';
             return;
         }
@@ -1053,6 +1058,11 @@ var BrowseController = (function() {
         // Validate auth before attempting to load content
         if (!auth || !auth.serverAddress || !auth.userId) {
             console.error('[browse] Cannot load home content: auth is invalid');
+            ServerLogger.logAppError('Cannot load home content: invalid auth', {
+                hasAuth: !!auth,
+                hasServerAddress: auth && !!auth.serverAddress,
+                hasUserId: auth && !!auth.userId
+            });
             contentLoading = false;
             window.location.href = 'login.html';
             return;
@@ -1852,6 +1862,9 @@ var BrowseController = (function() {
                     safeCallback(true);
                 }).catch(function(err) {
                     console.error('Error loading aggregated Continue Watching:', err);
+                    ServerLogger.logNetworkError('Failed to load Continue Watching', {
+                        error: err
+                    });
                     safeCallback(false);
                 });
             } else {

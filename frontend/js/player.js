@@ -1237,6 +1237,11 @@ var PlayerController = (function() {
             },
             function(err) {
                 console.error('[Player] Failed to report progress:', err);
+                ServerLogger.logPlaybackError('Failed to report progress', {
+                    error: err,
+                    sessionId: playSessionId,
+                    serverAddress: auth.serverAddress
+                });
             }
         );
     }
@@ -1253,6 +1258,11 @@ var PlayerController = (function() {
             },
             function(err) {
                 console.error('[Player] Failed to report stop:', err);
+                ServerLogger.logPlaybackError('Failed to report stop', {
+                    error: err,
+                    sessionId: playSessionId,
+                    serverAddress: auth.serverAddress
+                });
             }
         );
     }
@@ -1597,6 +1607,12 @@ var PlayerController = (function() {
         var errorMessage = videoPlayer.error ? videoPlayer.error.message : 'Unknown error';
         console.error('[Player] Error code:', errorCode, 'Message:', errorMessage);
         
+        ServerLogger.logPlaybackError('Playback error occurred', {
+            errorCode: errorCode,
+            errorMessage: errorMessage,
+            mediaSourceId: currentMediaSource ? currentMediaSource.Id : null,
+            sessionId: playSessionId
+        });
         
         clearLoadingTimeout();
         setLoadingState(LoadingState.ERROR);

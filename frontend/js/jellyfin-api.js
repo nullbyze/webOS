@@ -1186,6 +1186,10 @@ var JellyfinAPI = (function() {
             if (err) {
                 Logger.error('Failed to get programs:', err);
                 console.error('Failed to get programs for channel', channelId, ':', err);
+                ServerLogger.logNetworkError('Failed to get TV programs', {
+                    channelId: channelId,
+                    error: err
+                });
                 if (callback) callback(err, null);
                 return;
             }
@@ -1366,6 +1370,11 @@ var JellyfinAPI = (function() {
                     if (error.responseData) {
                         console.error('Error response JSON:', error.responseData);
                     }
+                    ServerLogger.logNetworkError('Failed to create recording timer', {
+                        error: error,
+                        timerId: timer.Id,
+                        responseText: error.responseText
+                    });
                     Logger.error('Failed to create recording timer:', error);
                     if (callback) callback(error, null);
                 }
