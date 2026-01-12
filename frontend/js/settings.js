@@ -1262,6 +1262,10 @@ var SettingsController = (function() {
                 openServerManager();
                 break;
                 
+            case 'checkForUpdates':
+                checkForUpdates();
+                break;
+                
             default:
         }
     }
@@ -1711,6 +1715,16 @@ var SettingsController = (function() {
                 if (returnFocus) returnFocus.focus();
             }
         );
+    }
+
+    /**
+     * Check for application updates from GitHub
+     * @private
+     */
+    function checkForUpdates() {
+        if (typeof VersionChecker !== 'undefined') {
+            VersionChecker.checkForUpdates();
+        }
     }
 
     /**

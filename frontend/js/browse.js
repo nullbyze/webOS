@@ -68,13 +68,6 @@ var BrowseController = (function() {
                 displayUserInfo();
                 setupNavigation();
                 loadHomeContent();
-                
-                // Update checker runs after a delay
-                setTimeout(function() {
-                    if (typeof UpdateChecker !== 'undefined') {
-                        UpdateChecker.init();
-                    }
-                }, CONTENT_LOAD_DELAY_MS);
             }
         }, NAVBAR_CHECK_INTERVAL_MS);
         
@@ -3077,6 +3070,11 @@ var BrowseController = (function() {
 
 window.addEventListener('load', function() {
     BrowseController.init();
+    
+    // Initialize version checker after page loads
+    if (typeof VersionChecker !== 'undefined') {
+        VersionChecker.init();
+    }
 });
 
 window.addEventListener('visibilitychange', function() {

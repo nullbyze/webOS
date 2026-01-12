@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/legacy-compat.css">
     <link rel="stylesheet" href="css/navbar.css">
     <link rel="stylesheet" href="css/settings.css">
+    <link rel="stylesheet" href="css/update-modal.css">
     <script src="webOSTVjs-1.2.11/webOSTV.js"></script>
     <script src="js/app-version.js"></script>
     <script src="js/polyfills.js"></script>
@@ -22,6 +23,7 @@
     <script src="js/jellyseerr-models.js"></script>
     <script src="js/jellyseerr-api.js"></script>
     <script src="js/jellyseerr-preferences.js"></script>
+    <script src="js/version-checker.js"></script>
     <script src="js/navbar.js"></script>
 </head>
 <body>
@@ -464,6 +466,18 @@
                             <div class="setting-description">Jellyfin server version</div>
                         </div>
                         <div class="setting-value" id="serverVersionValue">-</div>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h2>Updates</h2>
+                    
+                    <div class="setting-item action-item" data-setting="checkForUpdates" tabindex="0">
+                        <div class="setting-label">
+                            <div class="setting-title">Check for Updates</div>
+                            <div class="setting-description">Check GitHub for new versions of Moonfin for webOS</div>
+                        </div>
+                        <div class="setting-value">Check Now</div>
                     </div>
                 </div>
             </div>
