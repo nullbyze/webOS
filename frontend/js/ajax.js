@@ -22,6 +22,12 @@
  * 
 */
 
+/**
+ * @module AJAX
+ * @description XMLHttpRequest wrapper for HTTP requests
+ * Licensed under MPL 2.0 / Apache 2.0 (see header for full license)
+ */
+
 var ajax = new AJAX();
 
 /**

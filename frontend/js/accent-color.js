@@ -1,12 +1,14 @@
 /**
- * Accent Color Module
- * Manages the global accent color theme
+ * @module AccentColor
+ * @description Manages the global accent color theme from user settings
+ * Applies CSS custom properties for dynamic theming throughout the application
  */
 (function() {
     'use strict';
     
     /**
-     * Apply the accent color from settings
+     * Apply the accent color from user settings to CSS custom properties
+     * @private
      */
     function applyAccentColor() {
         var settings = storage.getUserPreference('jellyfin_settings', null);

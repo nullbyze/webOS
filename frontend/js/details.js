@@ -1,3 +1,9 @@
+/**
+ * @module DetailsController
+ * @description Media details page for Moonfin webOS
+ * Displays comprehensive information for movies, TV shows, seasons, and episodes.
+ * Handles playback, cast/crew info, similar content, and theme music playback.
+ */
 var DetailsController = (function() {
     /**
      * Theme music URL for the current item

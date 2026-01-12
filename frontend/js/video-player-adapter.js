@@ -9,6 +9,14 @@
  */
 
 /**
+ * @module VideoPlayerAdapter
+ * @description Abstraction layer for multiple playback engines
+ * Supports native HTML5, HLS.js, and Shaka Player with automatic engine selection.
+ * Handles media source extension, DRM, error recovery, and playback reporting.
+ * Licensed under MPL 2.0 (see header for full license)
+ */
+
+/**
  * Media Error Types
  */
 const MediaError = {

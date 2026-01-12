@@ -1,3 +1,9 @@
+/**
+ * @module LoginController
+ * @description Authentication controller for Moonfin webOS
+ * Manages server discovery, user authentication, Quick Connect, and multi-server setup.
+ * Handles both single-server and multi-server authentication flows.
+ */
 var LoginController = (function() {
     'use strict';
 

@@ -1,3 +1,10 @@
+/**
+ * @module Favorites
+ * @description Favorites page controller for Moonfin webOS
+ * Displays user's favorited content organized by type (movies, series, episodes, people).
+ * Supports multi-server aggregation and remote control navigation.
+ */
+
 (function() {
     'use strict';
     

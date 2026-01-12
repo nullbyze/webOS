@@ -1,6 +1,8 @@
 /**
- * Version Checker for Moonfin webOS
- * Checks GitHub releases for newer versions and displays update notification
+ * @module VersionChecker
+ * @description Version management system for Moonfin webOS
+ * Checks GitHub releases API for newer versions and displays update notifications
+ * with 24-hour cooldown and version dismissal capability.
  */
 
 var VersionChecker = (function () {
@@ -12,6 +14,11 @@ var VersionChecker = (function () {
    var STORAGE_KEY_LAST_CHECK = "version_last_check";
    var STORAGE_KEY_DISMISSED_VERSION = "version_dismissed";
 
+   /**
+    * Get current application version
+    * @private
+    * @returns {string} Current version string (e.g., "1.0.0")
+    */
    function getCurrentVersion() {
       return typeof APP_VERSION !== "undefined" ? APP_VERSION : "1.0.0";
    }
@@ -48,6 +55,7 @@ var VersionChecker = (function () {
 
    /**
     * Check if enough time has passed since last check
+    * @private
     * @returns {boolean} True if we should check for updates
     */
    function shouldCheckForUpdate() {
@@ -63,6 +71,10 @@ var VersionChecker = (function () {
       return hoursSinceCheck >= CHECK_COOLDOWN_HOURS;
    }
 
+   /**
+    * Mark that we've checked for updates
+    * @private
+    */
    function markChecked() {
       if (storage) {
          storage.set(STORAGE_KEY_LAST_CHECK, Date.now().toString(), false);
@@ -71,6 +83,7 @@ var VersionChecker = (function () {
 
    /**
     * Check if user dismissed this version
+    * @private
     * @param {string} version - Version to check
     * @returns {boolean} True if dismissed
     */
@@ -84,6 +97,11 @@ var VersionChecker = (function () {
       return dismissedVersion === version;
    }
 
+   /**
+    * Mark version as dismissed
+    * @private
+    * @param {string} version - Version to dismiss
+    */
    function dismissVersion(version) {
       if (storage) {
          storage.set(STORAGE_KEY_DISMISSED_VERSION, version, false);
@@ -92,6 +110,7 @@ var VersionChecker = (function () {
 
    /**
     * Fetch latest release info from GitHub
+    * @private
     * @returns {Promise<Object>} Release info object
     */
    function fetchLatestRelease() {
@@ -130,6 +149,7 @@ var VersionChecker = (function () {
 
    /**
     * Show update notification modal
+    * @private
     * @param {Object} releaseInfo - GitHub release information
     */
    function showUpdateModal(releaseInfo) {
@@ -214,6 +234,7 @@ var VersionChecker = (function () {
 
    /**
     * Format release notes for display
+    * @private
     * @param {string} notes - Raw release notes
     * @returns {string} Formatted HTML
     */
@@ -234,6 +255,9 @@ var VersionChecker = (function () {
       return formatted;
    }
 
+   /**
+    * Check for updates and show modal if newer version available
+    */
    function checkForUpdates() {
       console.log("[VERSION] Checking for updates...");
 
@@ -286,6 +310,10 @@ var VersionChecker = (function () {
          });
    }
 
+   /**
+    * Initialize version checker on app startup
+    * Waits 3 seconds before checking to allow app to fully load
+    */
    function init() {
       setTimeout(function () {
          checkForUpdates();

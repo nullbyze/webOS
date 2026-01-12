@@ -23,8 +23,17 @@
 */
 
 /**
- * STORAGE - Persistent storage for webOS with fallback to localStorage
- * Uses webOS db8 database service for true persistence across app restarts
+ * @module Storage
+ * @description Persistent storage system for webOS with localStorage fallback
+ * Uses webOS db8 database service for true persistence across app restarts.
+ * Falls back to localStorage when webOS services are unavailable.
+ * 
+ * @class STORAGE
+ * @constructor
+ * @example
+ * var storage = new STORAGE();
+ * storage.set('myKey', 'myValue', false);
+ * var value = storage.get('myKey', false);
  */
 function STORAGE() {
 	this.useWebOSStorage = false;

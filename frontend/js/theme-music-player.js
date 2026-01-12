@@ -1,9 +1,7 @@
 /**
- * ThemeMusicPlayer
- * Singleton for playing and stopping theme music for items (shows/movies).
+ * @module ThemeMusicPlayer
+ * @description Singleton for playing and stopping theme music for items (shows/movies)
  * Uses HTML5 Audio for playback. Ensures only one theme is played at a time.
- *
- * @namespace ThemeMusicPlayer
  */
 var ThemeMusicPlayer = (function() {
     'use strict';

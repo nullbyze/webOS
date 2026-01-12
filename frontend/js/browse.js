@@ -1,3 +1,10 @@
+/**
+ * @module BrowseController
+ * @description Main browse/home screen controller for Moonfin webOS
+ * Manages content loading, navigation, featured carousel, and multi-server support.
+ * Handles home view, library views, and content row rendering with remote control navigation.
+ */
+
 var BrowseController = (function() {
     'use strict';
 
@@ -6,10 +13,10 @@ var BrowseController = (function() {
     var userLibraries = [];
     var featuredBannerEnabled = true;
     var hasImageHelper = false;
-    var currentView = 'home'; // Track current view type
-    var homeContentLoaded = false; // Track if home content has been loaded
-    var contentLoading = false; // Track if content is currently being loaded
-    var fallbackNavigationActive = false; // Track if fallback navigation has been enabled
+    var currentView = 'home';
+    var homeContentLoaded = false;
+    var contentLoading = false;
+    var fallbackNavigationActive = false;
     
     var focusManager = {
         currentRow: 0,

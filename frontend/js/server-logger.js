@@ -1,7 +1,8 @@
 /**
- * Server Logger Module
- * Sends error logs and telemetry to the Jellyfin server's Activity Log
- * Similar to the Android TV app's TelemetryService
+ * @module ServerLogger
+ * @description Server-side logging and telemetry for Moonfin webOS
+ * Sends error logs and telemetry to Jellyfin server's Activity Log.
+ * Similar to Android TV app's TelemetryService. Handles buffering and structured logging.
  */
 var ServerLogger = (function () {
    "use strict";

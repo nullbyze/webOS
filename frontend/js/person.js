@@ -1,6 +1,8 @@
 /**
- * Person Details Controller
- * Displays person/cast member information and their credits
+ * @module PersonController
+ * @description Person/cast member details page controller
+ * Displays biographical information, profile photos, and complete filmography.
+ * Handles navigation through movies and TV show credits with remote control.
  */
 
 var PersonController = (function() {

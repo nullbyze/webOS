@@ -1,7 +1,8 @@
 /**
- * Connection Pool Manager
- * Manages API requests across multiple Jellyfin servers
- * Handles request routing, response aggregation, and failover
+ * @module ConnectionPool
+ * @description Connection pool manager for multi-server Jellyfin deployments
+ * Routes API requests to appropriate servers, manages authentication state,
+ * and provides unified data aggregation for content from multiple servers.
  */
 
 var ConnectionPool = (function() {

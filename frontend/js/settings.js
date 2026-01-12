@@ -1,6 +1,8 @@
-/*
- * Settings Controller
- * Handles settings navigation and configuration
+/**
+ * @module SettingsController
+ * @description Settings management system for Moonfin webOS
+ * Handles user preferences, display settings, playback options, Jellyseerr integration,
+ * home row configuration, and multi-server management.
  */
 
 var SettingsController = (function() {

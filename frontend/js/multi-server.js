@@ -1,6 +1,8 @@
 /**
- * Multi-Server Manager
- * Handles multiple Jellyfin server connections with unified content view
+ * @module MultiServerManager
+ * @description Multi-server management for Jellyfin webOS
+ * Handles authentication, server switching, and session management across multiple Jellyfin servers.
+ * Provides unified authentication interface and server selection UI.
  */
 
 var MultiServerManager = (function() {

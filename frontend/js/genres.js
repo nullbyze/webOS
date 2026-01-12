@@ -1,3 +1,10 @@
+/**
+ * @module Genres
+ * @description Genres overview page controller for Moonfin webOS
+ * Displays all genres with content counts and provides genre-based browsing.
+ * Supports navigation through genre cards with remote control.
+ */
+
 (function() {
     'use strict';
     

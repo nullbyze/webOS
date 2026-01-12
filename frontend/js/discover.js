@@ -1,6 +1,8 @@
-/*
- * Discover Controller (Row-based Layout)
- * Handles Jellyseerr content discovery with horizontal rows
+/**
+ * @module DiscoverController
+ * @description Jellyseerr content discovery with row-based layout
+ * Displays trending, popular, and recommended content from Jellyseerr.
+ * Manages horizontal row navigation and content loading with remote control support.
  */
 
 var DiscoverController = (function() {

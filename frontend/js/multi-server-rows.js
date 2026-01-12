@@ -1,8 +1,7 @@
 /**
- * Multi-Server Row Aggregation
- * 
- * Handles fetching and aggregating home screen rows from multiple Jellyfin servers.
- * Similar to Android TV's MultiServerRepository pattern.
+ * @module MultiServerRows
+ * @description Multi-server row aggregation for home screen content
+ * Fetches and combines content rows from multiple Jellyfin servers.
  */
 
 var MultiServerRows = (function() {

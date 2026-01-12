@@ -1,6 +1,8 @@
 /**
- * Image Helper Module
- * Handles image URL generation and selection based on user settings
+ * @module ImageHelper
+ * @description Image URL generation and selection based on user settings
+ * Handles Primary vs Thumb image types, aspect ratios, and image quality.
+ * Supports backdrop, logo, banner, and poster image types with fallback.
  */
 var ImageHelper = (function() {
     'use strict';

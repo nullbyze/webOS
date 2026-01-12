@@ -1,3 +1,9 @@
+/**
+ * @module SearchController
+ * @description Search controller for Moonfin webOS
+ * Handles unified search across Jellyfin library and Jellyseerr content.
+ * Supports debounced input, multi-type results (movies, shows, episodes, people), and remote navigation.
+ */
 var SearchController = (function() {
     'use strict';
 
