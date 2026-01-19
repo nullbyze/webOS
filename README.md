@@ -38,7 +38,7 @@ Moonfin is the first webOS client with native Jellyseerr support.
 - Global search includes Jellyseerr results
 - Rich backdrop images for a more cinematic discovery experience
 
-### 🧭 Enhanced Navigation
+###  Enhanced Navigation
 - Quick access home button and search functionality
 - Shuffle button for instant random movie/TV show discovery
 - Genres menu to browse all media by genre in one place
@@ -46,18 +46,18 @@ Moonfin is the first webOS client with native Jellyseerr support.
 - One-click navigation to any library or collection directly from the navbar
 - Cleaner icon-based design for frequently used actions
 
-### 🎵 Playback & Media Control
+###  Playback & Media Control
 - **Theme Music Playback** - Background theme music support for TV shows and movies with volume control
 - **Pre-Playback Track Selection** - Choose your preferred audio track and subtitle before playback starts (configurable in settings)
 - **Next Episode Countdown** - Skip button shows countdown timer when next episode is available
 
-### 📊 Improved Details Screen
+###  Improved Details Screen
 - Metadata organized into clear sections: genres, directors, writers, studios, and runtime
 - Taglines displayed above the description where available
 - Cast photos appear as circles for a cleaner look
 - Fits more useful information on screen without feeling cramped
 
-### 🎨 UI Polish
+### UI Polish
 - **Accent Color Customization** - Personalize the UI with your preferred accent color
 - Item details show up right in the row, no need to open every title to see what it is
 - Buttons look better when not focused (transparent instead of distracting)
@@ -73,7 +73,7 @@ Moonfin is the first webOS client with native Jellyseerr support.
 Download the latest IPK from the [Releases page](https://github.com/Moonfin-Client/webOS/releases).
 
 **Supported Devices:**
-- LG Smart TVs running webOS 3.0+
+- LG Smart TVs running webOS 4.0+
 - LG webOS TVs (2016 and newer models)
 
 ### Jellyseerr Setup (Optional)
