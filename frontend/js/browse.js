@@ -1,3 +1,10 @@
+/**
+ * @module BrowseController
+ * @description Main browse/home screen controller for Moonfin webOS
+ * Manages content loading, navigation, featured carousel, and multi-server support.
+ * Handles home view, library views, and content row rendering with remote control navigation.
+ */
+
 var BrowseController = (function() {
     'use strict';
 
@@ -6,10 +13,10 @@ var BrowseController = (function() {
     var userLibraries = [];
     var featuredBannerEnabled = true;
     var hasImageHelper = false;
-    var currentView = 'home'; // Track current view type
-    var homeContentLoaded = false; // Track if home content has been loaded
-    var contentLoading = false; // Track if content is currently being loaded
-    var fallbackNavigationActive = false; // Track if fallback navigation has been enabled
+    var currentView = 'home';
+    var homeContentLoaded = false;
+    var contentLoading = false;
+    var fallbackNavigationActive = false;
     
     var focusManager = {
         currentRow: 0,
@@ -68,13 +75,6 @@ var BrowseController = (function() {
                 displayUserInfo();
                 setupNavigation();
                 loadHomeContent();
-                
-                // Update checker runs after a delay
-                setTimeout(function() {
-                    if (typeof UpdateChecker !== 'undefined') {
-                        UpdateChecker.init();
-                    }
-                }, CONTENT_LOAD_DELAY_MS);
             }
         }, NAVBAR_CHECK_INTERVAL_MS);
         
@@ -139,6 +139,11 @@ var BrowseController = (function() {
     function loadUserLibraries() {
         if (!auth || !auth.serverAddress || !auth.userId) {
             console.error('[browse] Cannot load libraries: auth is invalid');
+            ServerLogger.logAppError('Cannot load libraries: invalid auth', {
+                hasAuth: !!auth,
+                hasServerAddress: auth && !!auth.serverAddress,
+                hasUserId: auth && !!auth.userId
+            });
             window.location.href = 'login.html';
             return;
         }
@@ -1053,6 +1058,11 @@ var BrowseController = (function() {
         // Validate auth before attempting to load content
         if (!auth || !auth.serverAddress || !auth.userId) {
             console.error('[browse] Cannot load home content: auth is invalid');
+            ServerLogger.logAppError('Cannot load home content: invalid auth', {
+                hasAuth: !!auth,
+                hasServerAddress: auth && !!auth.serverAddress,
+                hasUserId: auth && !!auth.userId
+            });
             contentLoading = false;
             window.location.href = 'login.html';
             return;
@@ -1852,6 +1862,9 @@ var BrowseController = (function() {
                     safeCallback(true);
                 }).catch(function(err) {
                     console.error('Error loading aggregated Continue Watching:', err);
+                    ServerLogger.logNetworkError('Failed to load Continue Watching', {
+                        error: err
+                    });
                     safeCallback(false);
                 });
             } else {
@@ -3064,6 +3077,11 @@ var BrowseController = (function() {
 
 window.addEventListener('load', function() {
     BrowseController.init();
+    
+    // Initialize version checker after page loads
+    if (typeof VersionChecker !== 'undefined') {
+        VersionChecker.init();
+    }
 });
 
 window.addEventListener('visibilitychange', function() {

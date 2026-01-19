@@ -1,6 +1,8 @@
-/*
- * Jellyfin WebOS Key Codes
- * Global key code constants for consistent keyboard/remote navigation
+/**
+ * @module KeyCodes
+ * @description Global key code constants for consistent keyboard/remote navigation on webOS
+ * Provides unified key code definitions for navigation, webOS-specific remote buttons,
+ * keyboard keys, and numeric input.
  */
 
 var KeyCodes = (function() {

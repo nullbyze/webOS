@@ -2,16 +2,35 @@
  * Player Controller Module
  * Manages video playback, controls, track selection, and playback reporting
  * Supports direct play, transcoding, and Live TV streaming
+ * 
+ * PlaybackManager Integration:
+ * - When USE_PLAYBACK_MANAGER is true, uses jellyfin-web's PlaybackManager for playback
+ * - When false, uses legacy direct video URL loading
+ * - PlaybackManager provides automatic server reporting, profile negotiation, and track management
+ * 
  * @module PlayerController
  */
 var PlayerController = (function() {
     'use strict';
+
+    // ========================================================================
+    // PlaybackManager Integration Toggle
+    // ========================================================================
+    
+    /**
+     * Enable PlaybackManager integration (recommended)
+     * Set to false to use legacy direct playback mode
+     * @constant {boolean}
+     */
+    const USE_PLAYBACK_MANAGER = false; // TODO: Set to true once jellyfin-web is bundled
 
     let auth = null;
     let itemId = null;
     let itemData = null;
     let videoPlayer = null;
     let playerAdapter = null;
+    /** @type {Object|null} PlaybackManager adapter when USE_PLAYBACK_MANAGER is enabled */
+    let playbackManagerAdapter = null;
     let controlsVisible = false;
     let controlsTimeout = null;
     let playbackInfo = null;
@@ -48,6 +67,15 @@ var PlayerController = (function() {
     let currentSkipSegment = null;
     let skipOverlayVisible = false;
     let nextEpisodeData = null;
+    let previousEpisodeData = null;
+    let trickplayData = null;
+    let trickplayResolution = null;
+    let trickplayVisible = false;
+    let audioContext = null;
+    let gainNode = null;
+    let sourceNode = null;
+    let normalizationGain = 1.0;
+    let audioNormalizationEnabled = true;
     
     const LoadingState = {
         IDLE: 'idle',
@@ -125,14 +153,12 @@ var PlayerController = (function() {
     function init() {
         console.log('[Player] Initializing player controller');
         
-        // Initialize DeviceProfile early to load device info (HDR/DV capabilities)
         if (typeof DeviceProfile !== 'undefined' && DeviceProfile.init) {
             DeviceProfile.init(function(deviceInfo) {
                 console.log('[Player] DeviceProfile initialized with device info:', deviceInfo);
             });
         }
         
-        // Get auth for the specific server from URL params or active server
         auth = typeof MultiServerManager !== 'undefined' 
             ? MultiServerManager.getAuthForPage() 
             : JellyfinAPI.getStoredAuth();
@@ -150,8 +176,66 @@ var PlayerController = (function() {
 
         cacheElements();
         setupEventListeners();
-        // Initialize playback flow (adapter will be created once playback method is known)
+        
+        // Initialize PlaybackManager if enabled
+        if (USE_PLAYBACK_MANAGER) {
+            initPlaybackManagerAdapter();
+        }
+        
         loadItemAndPlay();
+    }
+
+    /**
+     * Initialize PlaybackManager adapter with UI callbacks
+     * Called once during player initialization when USE_PLAYBACK_MANAGER is true
+     */
+    function initPlaybackManagerAdapter() {
+        console.log('[Player] Initializing PlaybackManager adapter');
+        
+        if (typeof PlaybackManagerAdapter === 'undefined') {
+            console.error('[Player] PlaybackManagerAdapter not available');
+            return;
+        }
+
+        const callbacks = {
+            onTimeUpdate: function(currentTicks, durationTicks) {
+                updateProgressDisplay(currentTicks / TICKS_PER_SECOND, durationTicks / TICKS_PER_SECOND);
+            },
+            onPause: function() {
+                updatePlayPauseButton(true);
+            },
+            onUnpause: function() {
+                updatePlayPauseButton(false);
+            },
+            onPlaybackStart: function(state) {
+                console.log('[Player] PlaybackManager playback started:', state);
+                hideLoading();
+                startProgressReporting();
+            },
+            onPlaybackStop: function(stopInfo) {
+                console.log('[Player] PlaybackManager playback stopped:', stopInfo);
+                handlePlaybackEnd();
+            },
+            onMediaStreamsChange: function() {
+                console.log('[Player] Media streams changed');
+                if (playbackManagerAdapter) {
+                    loadAudioTracksFromPlaybackManager();
+                    loadSubtitleTracksFromPlaybackManager();
+                }
+            },
+            onError: function(error) {
+                console.error('[Player] PlaybackManager error:', error);
+                showErrorDialog('Playback Error', error.message || 'An error occurred during playback');
+            }
+        };
+
+        playbackManagerAdapter = PlaybackManagerAdapter.init(callbacks);
+        
+        if (!playbackManagerAdapter) {
+            console.error('[Player] Failed to initialize PlaybackManager adapter');
+        } else {
+            console.log('[Player] PlaybackManager adapter initialized successfully');
+        }
     }
 
     function getItemIdFromUrl() {
@@ -220,6 +304,10 @@ var PlayerController = (function() {
             skipButton: document.getElementById('skipButton'),
             skipButtonText: document.getElementById('skipButtonText'),
             skipButtonTime: document.getElementById('skipButtonTime'),
+            trickplayBubble: document.getElementById('trickplayBubble'),
+            trickplayThumb: document.getElementById('trickplayThumb'),
+            trickplayChapterName: document.getElementById('trickplayChapterName'),
+            trickplayTime: document.getElementById('trickplayTime'),
             errorDialog: document.getElementById('errorDialog'),
             errorDialogTitle: document.getElementById('errorDialogTitle'),
             errorDialogMessage: document.getElementById('errorDialogMessage'),
@@ -229,7 +317,6 @@ var PlayerController = (function() {
 
         videoPlayer = elements.videoPlayer;
         
-        // Create focusable buttons array for navigation
         focusableButtons = [
             elements.playPauseBtn,
             elements.rewindBtn,
@@ -248,12 +335,8 @@ var PlayerController = (function() {
     }
 
     function setupEventListeners() {
-        // Error dialog
         elements.errorDialogBtn.addEventListener('click', closeErrorDialog);
-        // Keyboard controls
         document.addEventListener('keydown', handleKeyDown);
-
-        // Video player events
         videoPlayer.addEventListener('play', onPlay);
         videoPlayer.addEventListener('pause', onPause);
         videoPlayer.addEventListener('timeupdate', onTimeUpdate);
@@ -264,7 +347,6 @@ var PlayerController = (function() {
         videoPlayer.addEventListener('waiting', onWaiting);
         videoPlayer.addEventListener('playing', onPlaying);
 
-        // Control buttons
         if (elements.playPauseBtn) {
             elements.playPauseBtn.addEventListener('click', togglePlayPause);
         }
@@ -305,7 +387,6 @@ var PlayerController = (function() {
             elements.playModeBtn.addEventListener('click', showPlayModeSelector);
         }
 
-        // Skip button
         if (elements.skipButton) {
             elements.skipButton.addEventListener('click', executeSkip);
             elements.skipButton.addEventListener('keydown', function(evt) {
@@ -316,27 +397,44 @@ var PlayerController = (function() {
             });
         }
 
-        // Show controls on any interaction
         document.addEventListener('mousemove', showControls);
         document.addEventListener('click', showControls);
         
-        // Progress bar interaction
         if (elements.progressBar) {
             elements.progressBar.setAttribute('tabindex', '0');
             elements.progressBar.addEventListener('click', handleProgressBarClick);
             elements.progressBar.addEventListener('focus', function() {
                 isSeekbarFocused = true;
                 seekPosition = videoPlayer.currentTime;
+                showTrickplayBubble();
             });
             elements.progressBar.addEventListener('blur', function() {
                 isSeekbarFocused = false;
+                hideTrickplayBubble();
+            });
+            
+            elements.progressBar.addEventListener('mousemove', function(evt) {
+                if (!videoPlayer.duration) return;
+                var rect = elements.progressBar.getBoundingClientRect();
+                var percent = ((evt.clientX - rect.left) / rect.width) * 100;
+                var positionTicks = (percent / 100) * videoPlayer.duration * TICKS_PER_SECOND;
+                updateTrickplayBubble(positionTicks, percent);
+            });
+            
+            elements.progressBar.addEventListener('mouseenter', function() {
+                showTrickplayBubble();
+            });
+            
+            elements.progressBar.addEventListener('mouseleave', function() {
+                if (!isSeekbarFocused) {
+                    hideTrickplayBubble();
+                }
             });
         }
     }
 
     async function ensurePlayerAdapter(options = {}) {
         try {
-            // Reuse adapter if it already matches the preference
             if (playerAdapter) {
                 var name = playerAdapter.getName();
                 if (options.preferWebOS && name === 'WebOSLuna') {
@@ -357,7 +455,6 @@ var PlayerController = (function() {
             playerAdapter = await VideoPlayerFactory.createPlayer(videoPlayer, options);
             console.log('[Player] Using adapter:', playerAdapter.getName());
             
-            // Setup adapter event listeners
             playerAdapter.on('error', function(error) {
                 onError(error);
             });
@@ -389,7 +486,6 @@ var PlayerController = (function() {
     function handleKeyDown(evt) {
         evt = evt || window.event;
 
-        // Handle error dialog first
         if (elements.errorDialog && elements.errorDialog.style.display !== 'none') {
             if (evt.keyCode === KeyCodes.OK || evt.keyCode === KeyCodes.ENTER || 
                 evt.keyCode === KeyCodes.BACK || evt.keyCode === 461) {
@@ -399,7 +495,6 @@ var PlayerController = (function() {
             return;
         }
 
-        // Handle modal navigation separately
         if (activeModal) {
             handleModalKeyDown(evt);
             return;
@@ -412,12 +507,10 @@ var PlayerController = (function() {
                 break;
                 
             case KeyCodes.ENTER:
-                // Only toggle play/pause if no button is focused
                 if (!document.activeElement || !focusableButtons.includes(document.activeElement)) {
                     evt.preventDefault();
                     togglePlayPause();
                 }
-                // If a button is focused, let it handle the click naturally
                 break;
 
             case KeyCodes.PLAY:
@@ -447,7 +540,7 @@ var PlayerController = (function() {
             case KeyCodes.BACK:
             case 461: // webOS back button
                 evt.preventDefault();
-                // If controls are visible, just hide them instead of exiting
+
                 if (controlsVisible) {
                     hideControls();
                     controlsVisible = false;
@@ -459,15 +552,15 @@ var PlayerController = (function() {
             case KeyCodes.UP:
                 evt.preventDefault();
                 showControls();
-                // Move from seekbar to buttons above, or from bottom buttons to seekbar
+
                 if (isSeekbarFocused) {
-                    // Move from seekbar to first button (play button)
+
                     if (focusableButtons.length > 0) {
                         currentFocusIndex = 0;
                         focusableButtons[currentFocusIndex].focus();
                     }
                 } else if (document.activeElement && focusableButtons.includes(document.activeElement)) {
-                    // If on the bottom buttons (chaptersBtn or videoInfoBtn), move to seekbar
+
                     if (currentFocusIndex === focusableButtons.length - 1 || currentFocusIndex === focusableButtons.length - 2) {
                         if (elements.progressBar) {
                             elements.progressBar.focus();
@@ -479,16 +572,16 @@ var PlayerController = (function() {
             case KeyCodes.DOWN:
                 evt.preventDefault();
                 showControls();
-                // Move from buttons to seekbar, or from seekbar to bottom buttons
+
                 if (document.activeElement && focusableButtons.includes(document.activeElement)) {
-                    // If on any of the top buttons, move to seekbar
+
                     if (currentFocusIndex < focusableButtons.length - 2) {
                         if (elements.progressBar) {
                             elements.progressBar.focus();
                         }
                     }
                 } else if (isSeekbarFocused) {
-                    // Move from seekbar to first bottom button (chaptersBtn)
+
                     if (focusableButtons.length > 1) {
                         currentFocusIndex = focusableButtons.length - 2;
                         focusableButtons[currentFocusIndex].focus();
@@ -501,7 +594,7 @@ var PlayerController = (function() {
                 
             case KeyCodes.LEFT:
                 if (isSeekbarFocused) {
-                    // Seek backward on seekbar
+
                     evt.preventDefault();
                     seekBackward();
                 } else if (document.activeElement && focusableButtons.includes(document.activeElement)) {
@@ -513,7 +606,7 @@ var PlayerController = (function() {
                 
             case KeyCodes.RIGHT:
                 if (isSeekbarFocused) {
-                    // Seek forward on seekbar
+
                     evt.preventDefault();
                     seekForward();
                 } else if (document.activeElement && focusableButtons.includes(document.activeElement)) {
@@ -526,7 +619,6 @@ var PlayerController = (function() {
     }
 
     function handleModalKeyDown(evt) {
-        // Special handling for video info modal - scroll instead of navigating items
         if (activeModal === 'videoInfo') {
             switch (evt.keyCode) {
                 case KeyCodes.UP:
@@ -552,7 +644,6 @@ var PlayerController = (function() {
             return;
         }
         
-        // Standard modal navigation for other modals
         currentModalFocusIndex = TrackSelector.handleModalKeyDown(
             evt,
             modalFocusableItems,
@@ -578,11 +669,9 @@ var PlayerController = (function() {
 
             itemData = data;
             console.log('[Player] Loaded item:', itemData.Name, 'Type:', itemData.Type);
-
-            // Set media info. Prefering the logo over title text
             var hasLogo = false;
             
-            // Try to get logo image (for series/movies with logo)
+
             if (itemData.ImageTags && itemData.ImageTags.Logo) {
                 if (elements.mediaLogo) {
                     elements.mediaLogo.src = auth.serverAddress + '/Items/' + itemData.Id +
@@ -591,7 +680,7 @@ var PlayerController = (function() {
                     hasLogo = true;
                 }
             } else if (itemData.SeriesId && itemData.Type === 'Episode') {
-                // For episodes, try to get the series logo
+
                 if (elements.mediaLogo) {
                     elements.mediaLogo.src = auth.serverAddress + '/Items/' + itemData.SeriesId +
                         '/Images/Logo?quality=90&maxHeight=150';
@@ -600,7 +689,7 @@ var PlayerController = (function() {
                 }
             }
             
-            // Fallback to title text if no logo :(
+
             if (!hasLogo && elements.mediaTitle) {
                 elements.mediaTitle.textContent = itemData.Name;
                 elements.mediaTitle.style.display = 'block';
@@ -619,11 +708,9 @@ var PlayerController = (function() {
                 elements.mediaSubtitle.textContent = subtitle;
             }
 
-            // Load media segments and next episode data for episodes
+            initializeTrickplay();
             loadMediaSegments();
-            loadNextEpisode();
-
-            // Get playback info
+            loadAdjacentEpisodes();
             getPlaybackInfo();
         });
     }
@@ -631,7 +718,6 @@ var PlayerController = (function() {
     function getPlaybackInfo() {
         var playbackUrl = auth.serverAddress + '/Items/' + itemId + '/PlaybackInfo';
         
-        // Check if this is Live TV
         var isLiveTV = itemData && itemData.Type === 'TvChannel';
         
         var requestData = {
@@ -707,7 +793,7 @@ var PlayerController = (function() {
                     }
                 }
                 
-                // Start playback
+
                 if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
                     startPlayback(playbackInfo.MediaSources[0]).catch(onError);
                 } else {
@@ -740,7 +826,7 @@ var PlayerController = (function() {
     }
 
     function getDeviceProfile() {
-        // Use the DeviceProfile module if available for dynamic capability detection
+
         if (typeof DeviceProfile !== 'undefined') {
             return DeviceProfile.getProfile({
                 maxBitrate: 120000000,
@@ -749,16 +835,16 @@ var PlayerController = (function() {
             });
         }
         
-        // Fallback to static profile
+
         return {
             MaxStreamingBitrate: 120000000,
             MaxStaticBitrate: 100000000,
             MusicStreamingTranscodingBitrate: 384000,
             DirectPlayProfiles: [
-                // HEVC/H.265 with Dolby Vision and HDR10 support
+
                 { Container: 'mp4', Type: 'Video', VideoCodec: 'hevc,h264,avc', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd,flac' },
                 { Container: 'mkv', Type: 'Video', VideoCodec: 'hevc,h264,avc', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd,flac' },
-                // Explicitly list Dolby Vision profiles (dvhe/dvh1)
+
                 { Container: 'mp4', Type: 'Video', VideoCodec: 'dvhe,dvh1', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd' },
                 { Container: 'mkv', Type: 'Video', VideoCodec: 'dvhe,dvh1', AudioCodec: 'eac3,ac3,aac,mp3,dts,truehd' }
             ],
@@ -798,7 +884,7 @@ var PlayerController = (function() {
                 }
             ],
             SubtitleProfiles: [
-                // For HLS streaming, subtitles should be burned in (encoded into video)
+
                 { Format: 'srt', Method: 'Encode' },
                 { Format: 'ass', Method: 'Encode' },
                 { Format: 'ssa', Method: 'Encode' },
@@ -811,16 +897,77 @@ var PlayerController = (function() {
         };
     }
 
+    /**
+     * Start playback using PlaybackManager (when USE_PLAYBACK_MANAGER is true)
+     * PlaybackManager handles server negotiation, stream selection, and automatic reporting
+     * @param {Object} mediaSource - Media source from PlaybackInfo
+     */
+    async function startPlaybackViaPlaybackManager(mediaSource) {
+        console.log('[Player] Starting playback via PlaybackManager');
+        
+        if (!playbackManagerAdapter) {
+            console.error('[Player] PlaybackManager adapter not initialized');
+            showErrorDialog('Playback Error', 'PlaybackManager is not available');
+            return;
+        }
+
+        try {
+            showLoading();
+            
+            // Get start position from URL or resume position
+            const startPositionTicks = getStartPositionFromUrl() * TICKS_PER_SECOND || 
+                                      (itemData.UserData && itemData.UserData.PlaybackPositionTicks) || 
+                                      0;
+
+            // PlaybackManager.play() options
+            const playOptions = {
+                items: [itemData],
+                startPositionTicks: startPositionTicks,
+                mediaSourceId: mediaSource.Id,
+                audioStreamIndex: currentAudioIndex >= 0 ? audioStreams[currentAudioIndex].Index : undefined,
+                subtitleStreamIndex: currentSubtitleIndex >= 0 ? subtitleStreams[currentSubtitleIndex].Index : undefined
+            };
+
+            console.log('[Player] PlaybackManager play options:', playOptions);
+
+            // Start playback through adapter
+            const success = await playbackManagerAdapter.play(playOptions);
+            
+            if (!success) {
+                throw new Error('PlaybackManager failed to start playback');
+            }
+
+            // Load tracks from PlaybackManager
+            loadAudioTracksFromPlaybackManager();
+            loadSubtitleTracksFromPlaybackManager();
+            
+            // Initialize player features
+            initializeAudioNormalization();
+            
+            console.log('[Player] PlaybackManager playback started successfully');
+            
+        } catch (error) {
+            console.error('[Player] PlaybackManager playback error:', error);
+            showErrorDialog('Playback Error', error.message || 'Failed to start playback via PlaybackManager');
+        }
+    }
+
     async function startPlayback(mediaSource) {
+        // Use PlaybackManager if enabled
+        if (USE_PLAYBACK_MANAGER) {
+            return startPlaybackViaPlaybackManager(mediaSource);
+        }
+
+        // Legacy direct playback mode
         playSessionId = generateUUID();
         currentMediaSource = mediaSource;
         isDolbyVisionMedia = false; // Reset flag for new playback session
         
-        // Populate audio/subtitle streams early so preferences can be applied
+
         audioStreams = mediaSource.MediaStreams ? mediaSource.MediaStreams.filter(function(s) { return s.Type === 'Audio'; }) : [];
         subtitleStreams = mediaSource.MediaStreams ? mediaSource.MediaStreams.filter(function(s) { return s.Type === 'Subtitle'; }) : [];
         
-        // Initialize track indices to default tracks
+
         currentAudioIndex = -1;
         currentSubtitleIndex = -1;
         for (var i = 0; i < audioStreams.length; i++) {
@@ -843,7 +990,7 @@ var PlayerController = (function() {
         var streamUrl;
         var mimeType;
         var useDirectPlay = false;
-        // URLSearchParams in Chrome 53 (webOS 4) doesn't support object constructor
+
         // Must append parameters one by one
         var params = new URLSearchParams();
         params.append('mediaSourceId', mediaSource.Id);
@@ -854,7 +1001,7 @@ var PlayerController = (function() {
         var videoStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Video'; }) : null;
         var audioStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Audio'; }) : null;
         
-        // Check if this is a Dolby Vision or HDR file
+
         var isDolbyVision = videoStream && videoStream.Codec && 
             (videoStream.Codec.toLowerCase().startsWith('dvhe') || videoStream.Codec.toLowerCase().startsWith('dvh1'));
         var isHEVC10bit = videoStream && videoStream.Codec && 
@@ -868,7 +1015,7 @@ var PlayerController = (function() {
         var safeAudioCodecs = ['aac', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'flac'];
         var safeContainers = ['mp4', 'mkv', 'ts', 'm2ts'];
         
-        // Use DeviceProfile for more accurate capability detection
+
         var recommendedPlayMethod = 'Transcode';
         if (typeof DeviceProfile !== 'undefined' && DeviceProfile.getPlayMethod) {
             recommendedPlayMethod = DeviceProfile.getPlayMethod(mediaSource);
@@ -916,7 +1063,7 @@ var PlayerController = (function() {
             shouldUseDirectPlay = canDirectPlay;
         }
         
-        // Check if media source has a pre-configured transcoding URL (for Live TV)
+
         if (mediaSource.TranscodingUrl) {
             streamUrl = auth.serverAddress + mediaSource.TranscodingUrl;
             
@@ -1028,7 +1175,7 @@ var PlayerController = (function() {
             params.append('MinSegments', '2');
             params.append('BreakOnNonKeyFrames', 'false');
             
-            // Check for user-selected track preferences from details page (not for Live TV)
+
             if (!isLiveTV) {
                 var preferredAudioIndex = localStorage.getItem('preferredAudioTrack_' + itemId);
                 var preferredSubtitleIndex = localStorage.getItem('preferredSubtitleTrack_' + itemId);
@@ -1057,8 +1204,6 @@ var PlayerController = (function() {
             window.history.back();
             return;
         }
-
-        // Prepare the correct adapter based on playback method
         var creationOptions = {};
         if (useDirectPlay) {
             // For DirectPlay on webOS, use HTML5 video element
@@ -1067,8 +1212,6 @@ var PlayerController = (function() {
             creationOptions.preferHTML5 = true;
             creationOptions.skipMimeType = true; // Don't set MIME type - let webOS auto-detect
         } else if (isTranscoding) {
-            // For transcoded HLS streams, prefer HTML5+HLS.js for best compatibility
-            // This matches jellyfin-web behavior
             creationOptions.preferHLS = true;
         }
         await ensurePlayerAdapter(creationOptions);
@@ -1087,14 +1230,14 @@ var PlayerController = (function() {
         var startPosition = 0;
         var urlPosition = getStartPositionFromUrl();
         if (urlPosition !== null) {
-            // Position specified in URL takes precedence
+
             startPosition = urlPosition;
         } else if (!isLiveTV && itemData.UserData && itemData.UserData.PlaybackPositionTicks > 0) {
-            // Otherwise use saved position if available
+
             startPosition = itemData.UserData.PlaybackPositionTicks / TICKS_PER_SECOND;
         }
         
-        // Setup timeout (smart for direct play, standard for streams)
+
         if (useDirectPlay) {
             setupDirectPlayTimeout(mediaSource);
         } else {
@@ -1226,7 +1369,7 @@ var PlayerController = (function() {
         var directPlayStartTime = Date.now();
         var hasProgressedSinceStart = false;
         
-        // Create event handlers with closure over mutable flags
+
         var onProgress = function() {
             hasProgressedSinceStart = true;
             console.log('[Player] Buffering progress detected for direct play');
@@ -1242,32 +1385,32 @@ var PlayerController = (function() {
             console.log('[Player] Video ready to play - direct play is working');
         };
         
-        // Attach listeners
+
         videoPlayer.addEventListener('progress', onProgress);
         videoPlayer.addEventListener('loadedmetadata', onLoadedMetadata);
         videoPlayer.addEventListener('canplay', onCanPlay);
         
         loadingTimeout = setTimeout(function() {
-            // Clean up listeners immediately to prevent leaks
+
             videoPlayer.removeEventListener('progress', onProgress);
             videoPlayer.removeEventListener('loadedmetadata', onLoadedMetadata);
             videoPlayer.removeEventListener('canplay', onCanPlay);
             
-            // Exit if playback already loaded or errored
+
             if (loadingState !== LoadingState.LOADING) {
                 return;
             }
             
-            // Decision logic based on buffering progress
+
             if (!hasProgressedSinceStart) {
-                // No activity in timeout period - network issue
+
                 var elapsedSeconds = ((Date.now() - directPlayStartTime) / 1000).toFixed(1);
                 console.log('[Player] Direct play timeout after ' + elapsedSeconds + 's (no buffering progress)');
                 if (mediaSource && attemptTranscodeFallback(mediaSource, 'No buffering progress')) {
                     alert('Direct playback not responding. Switching to transcoding...');
                 }
             } else {
-                // Buffering started but canplay didn't fire - give it more time
+
                 console.log('[Player] Direct play buffering but not ready. Extending timeout...');
                 var extendedTimeout = setTimeout(function() {
                     if (loadingState === LoadingState.LOADING && mediaSource) {
@@ -1336,6 +1479,11 @@ var PlayerController = (function() {
     }
 
     function reportPlaybackStart() {
+        if (USE_PLAYBACK_MANAGER) {
+            console.log('[Player] Skipping manual playback start report (using PlaybackManager)');
+            return;
+        }
+
         makePlaybackRequest(
             auth.serverAddress + '/Sessions/Playing',
             buildPlaybackData(),
@@ -1349,6 +1497,10 @@ var PlayerController = (function() {
     function reportPlaybackProgress() {
         if (!playSessionId) return;
 
+        if (USE_PLAYBACK_MANAGER) {
+            return;
+        }
+
         console.log('[Player] Reporting progress to:', auth.serverAddress);
         makePlaybackRequest(
             auth.serverAddress + '/Sessions/Playing/Progress',
@@ -1358,12 +1510,22 @@ var PlayerController = (function() {
             },
             function(err) {
                 console.error('[Player] Failed to report progress:', err);
+                ServerLogger.logPlaybackError('Failed to report progress', {
+                    error: err,
+                    sessionId: playSessionId,
+                    serverAddress: auth.serverAddress
+                });
             }
         );
     }
 
     function reportPlaybackStop() {
         if (!playSessionId) return;
+
+        if (USE_PLAYBACK_MANAGER) {
+            console.log('[Player] Skipping manual playback stop report (using PlaybackManager)');
+            return;
+        }
 
         console.log('[Player] Reporting stop to:', auth.serverAddress);
         makePlaybackRequest(
@@ -1374,6 +1536,11 @@ var PlayerController = (function() {
             },
             function(err) {
                 console.error('[Player] Failed to report stop:', err);
+                ServerLogger.logPlaybackError('Failed to report stop', {
+                    error: err,
+                    sessionId: playSessionId,
+                    serverAddress: auth.serverAddress
+                });
             }
         );
     }
@@ -1430,20 +1597,36 @@ var PlayerController = (function() {
     }
     
     function seekForward() {
-        if (videoPlayer.duration) {
-            // Use pending seek position if a seek is in progress, otherwise use current video time
+        var duration = videoPlayer.duration;
+        if (duration) {
+
             var currentPosition = pendingSeekPosition !== null ? pendingSeekPosition : videoPlayer.currentTime;
-            seekPosition = Math.min(currentPosition + SKIP_INTERVAL_SECONDS, videoPlayer.duration);
+            seekPosition = Math.min(currentPosition + SKIP_INTERVAL_SECONDS, duration);
             seekTo(seekPosition);
+            
+            // Update trickplay bubble during keyboard seeking
+            if (isSeekbarFocused && duration) {
+                var percent = (seekPosition / duration) * 100;
+                updateTrickplayBubble(seekPosition * TICKS_PER_SECOND, percent);
+            }
+            
             showControls();
         }
     }
     
     function seekBackward() {
-        // Use pending seek position if a seek is in progress, otherwise use current video time
+        var duration = videoPlayer.duration;
+
         var currentPosition = pendingSeekPosition !== null ? pendingSeekPosition : videoPlayer.currentTime;
         seekPosition = Math.max(currentPosition - SKIP_INTERVAL_SECONDS, 0);
         seekTo(seekPosition);
+        
+        // Update trickplay bubble during keyboard seeking
+        if (isSeekbarFocused && duration) {
+            var percent = (seekPosition / duration) * 100;
+            updateTrickplayBubble(seekPosition * TICKS_PER_SECOND, percent);
+        }
+        
         showControls();
     }
     
@@ -1667,7 +1850,7 @@ var PlayerController = (function() {
             elements.endTime.textContent = 'Ends at ' + timeString;
         }
         
-        // Check for skip segments
+
         checkSkipSegments(videoPlayer.currentTime);
         
         // Update skip button countdown if visible
@@ -1706,6 +1889,12 @@ var PlayerController = (function() {
         var errorMessage = videoPlayer.error ? videoPlayer.error.message : 'Unknown error';
         console.error('[Player] Error code:', errorCode, 'Message:', errorMessage);
         
+        ServerLogger.logPlaybackError('Playback error occurred', {
+            errorCode: errorCode,
+            errorMessage: errorMessage,
+            mediaSourceId: currentMediaSource ? currentMediaSource.Id : null,
+            sessionId: playSessionId
+        });
         
         clearLoadingTimeout();
         setLoadingState(LoadingState.ERROR);
@@ -1720,41 +1909,92 @@ var PlayerController = (function() {
     }
 
     function playPreviousItem() {
+
+        if (previousEpisodeData) {
+            playPreviousEpisode();
+            return;
+        }
         
-        // Stop current playback
+
         reportPlaybackStop();
         stopProgressReporting();
         stopBitrateMonitoring();
+        cleanupAudioNormalization();
         
-        // Navigate back and let the previous page handle loading the previous item
-        // In a future enhancement, this could be integrated with a proper queue system
         window.history.back();
     }
     
     function playNextItem() {
+
+        if (nextEpisodeData) {
+            playNextEpisode();
+            return;
+        }
         
-        // Stop current playback
+
         reportPlaybackStop();
         stopProgressReporting();
         stopBitrateMonitoring();
+        cleanupAudioNormalization();
         
-        // Navigate back and let the previous page handle loading the next item
-        // In a future enhancement, this could be integrated with a proper queue system
         window.history.back();
+    }
+    
+    /**
+     * Play the previous episode in the series without reloading the page
+     */
+    function playPreviousEpisode() {
+        console.log('[playPreviousEpisode] START');
+        if (!previousEpisodeData) {
+            console.log('[playPreviousEpisode] No previous episode data available');
+            return;
+        }
+        
+        console.log('[playPreviousEpisode] Previous episode:', previousEpisodeData.Name, previousEpisodeData.Id);
+        
+
+        var prevEpisodeId = previousEpisodeData.Id;
+        
+
+        reportPlaybackStop();
+        stopProgressReporting();
+        stopBitrateMonitoring();
+        cleanupAudioNormalization();
+        
+
+        currentSkipSegment = null;
+        skipOverlayVisible = false;
+        hideSkipOverlay();
+        mediaSegments = [];
+        nextEpisodeData = null;
+        previousEpisodeData = null;
+        trickplayData = null;
+        trickplayResolution = null;
+        hideTrickplayBubble();
+        
+        // Update browser history
+        if (window && window.history && window.location) {
+            var newUrl = 'player.html?id=' + prevEpisodeId;
+            window.history.replaceState({}, '', newUrl);
+        }
+        
+
+        itemId = prevEpisodeId;
+        loadItemAndPlay();
     }
 
     function exitPlayer() {
-        // Report stop with current position before navigating away
+
         if (playSessionId) {
             makePlaybackRequest(
                 auth.serverAddress + '/Sessions/Playing/Stopped',
                 buildPlaybackData(),
                 function() {
-                    // Navigate after stop report succeeds
+
                     finishExit();
                 },
                 function(err) {
-                    // Navigate even if stop report fails
+
                     finishExit();
                 }
             );
@@ -1764,6 +2004,7 @@ var PlayerController = (function() {
         
         function finishExit() {
             stopProgressReporting();
+            stopBitrateMonitoring();
             
             clearLoadingTimeout();
             
@@ -1777,6 +2018,14 @@ var PlayerController = (function() {
                 clearTimeout(playbackHealthCheckTimer);
                 playbackHealthCheckTimer = null;
             }
+            
+            // Cleanup audio normalization
+            cleanupAudioNormalization();
+            
+            // Cleanup trickplay
+            trickplayData = null;
+            trickplayResolution = null;
+            hideTrickplayBubble();
             
             if (playerAdapter) {
                 playerAdapter.destroy().catch(function(err) {
@@ -1905,8 +2154,6 @@ var PlayerController = (function() {
         if (audioStreams.length === 0) {
             return;
         }
-
-
         // Build language map for Shaka Player
         audioLanguageMap = audioStreams.map(function(s) {
             return s.Language || 'und';
@@ -1937,8 +2184,6 @@ var PlayerController = (function() {
         subtitleStreams = itemData.MediaSources[0].MediaStreams.filter(function(s) {
             return s.Type === 'Subtitle';
         });
-
-
         modalFocusableItems = TrackSelector.buildSubtitleTrackList(
             subtitleStreams,
             currentSubtitleIndex,
@@ -1963,7 +2208,31 @@ var PlayerController = (function() {
             return;
         }
 
-        // Update the visual selection in modal before processing
+        if (USE_PLAYBACK_MANAGER && playbackManagerAdapter) {
+            const stream = audioStreams[index];
+            const success = playbackManagerAdapter.setAudioStreamIndex(stream.Index);
+            
+            if (success) {
+                currentAudioIndex = index;
+                console.log('[Player] Audio track changed via PlaybackManager');
+                
+                if (modalFocusableItems && modalFocusableItems.length > 0) {
+                    modalFocusableItems.forEach(function(item) {
+                        item.classList.remove('selected');
+                    });
+                    if (modalFocusableItems[index]) {
+                        modalFocusableItems[index].classList.add('selected');
+                    }
+                }
+                
+                closeModal();
+                return;
+            } else {
+                console.error('[Player] Failed to change audio track via PlaybackManager');
+            }
+        }
+
+
         if (modalFocusableItems && modalFocusableItems.length > 0) {
             modalFocusableItems.forEach(function(item) {
                 item.classList.remove('selected');
@@ -1978,7 +2247,7 @@ var PlayerController = (function() {
         var language = stream.Language || 'und';
         
         
-        // Skip Shaka adapter for transcoded streams - they only have one baked-in audio track
+
         // Must reload video with new AudioStreamIndex parameter
         if (!isTranscoding && playerAdapter && typeof playerAdapter.selectAudioTrack === 'function') {
             try {
@@ -2018,8 +2287,33 @@ var PlayerController = (function() {
     function selectSubtitleTrack(index) {
         console.log('[Player] Selecting subtitle track:', index === -1 ? 'None' : index);
         
-        // Update the visual selection in modal before processing
-        // Account for "None" option at index 0 in the modal
+        if (USE_PLAYBACK_MANAGER && playbackManagerAdapter) {
+            const streamIndex = index >= 0 && index < subtitleStreams.length ? subtitleStreams[index].Index : -1;
+            const success = playbackManagerAdapter.setSubtitleStreamIndex(streamIndex);
+            
+            if (success) {
+                currentSubtitleIndex = index;
+                console.log('[Player] Subtitle track changed via PlaybackManager');
+                
+                // Update UI
+                if (modalFocusableItems && modalFocusableItems.length > 0) {
+                    modalFocusableItems.forEach(function(item) {
+                        item.classList.remove('selected');
+                    });
+                    var modalIndex = index === -1 ? 0 : index + 1; // +1 because "None" is at position 0
+                    if (modalFocusableItems[modalIndex]) {
+                        modalFocusableItems[modalIndex].classList.add('selected');
+                    }
+                }
+                
+                closeModal();
+                return;
+            } else {
+                console.error('[Player] Failed to change subtitle track via PlaybackManager');
+            }
+        }
+
+
         if (modalFocusableItems && modalFocusableItems.length > 0) {
             modalFocusableItems.forEach(function(item) {
                 item.classList.remove('selected');
@@ -2032,7 +2326,7 @@ var PlayerController = (function() {
         
         currentSubtitleIndex = index;
         
-        // Skip Shaka adapter for transcoded streams - they don't include subtitle tracks
+
         // Must reload video with new SubtitleStreamIndex parameter  
         if (!isTranscoding && playerAdapter && typeof playerAdapter.selectSubtitleTrack === 'function') {
             try {
@@ -2084,7 +2378,7 @@ var PlayerController = (function() {
         
         // Build stream URL with track-specific parameters
         var streamUrl = auth.serverAddress + '/Videos/' + itemId + '/master.m3u8';
-        // URLSearchParams in Chrome 53 (webOS 4) doesn't support object constructor
+
         var params = new URLSearchParams();
         params.append('mediaSourceId', currentMediaSource.Id);
         params.append('deviceId', JellyfinAPI.init());
@@ -2118,12 +2412,12 @@ var PlayerController = (function() {
 
         var videoUrl = streamUrl + '?' + params.toString();
         
-        // Update the global play session ID
+
         playSessionId = newPlaySessionId;
         
         setLoadingState(LoadingState.LOADING);
         
-        // Use player adapter to load the new URL
+
         if (playerAdapter && typeof playerAdapter.load === 'function') {
             playerAdapter.load(videoUrl, { startPosition: currentTime })
                 .then(function() {
@@ -2164,7 +2458,7 @@ var PlayerController = (function() {
 
         var infoHtml = '<div class="info-section">';
         
-        // Get real-time playback stats from player adapter
+
         var liveStats = null;
         if (playerAdapter && typeof playerAdapter.getPlaybackStats === 'function') {
             liveStats = playerAdapter.getPlaybackStats();
@@ -2464,14 +2758,14 @@ var PlayerController = (function() {
         var startSeconds = startTicks / 10000000;
         
         
-        // Seek the video
+
         if (playerAdapter && typeof playerAdapter.seek === 'function') {
             playerAdapter.seek(startSeconds);
         } else {
             videoPlayer.currentTime = startSeconds;
         }
         
-        // Close the modal
+
         closeModal();
     }
 
@@ -2594,7 +2888,7 @@ var PlayerController = (function() {
         
         modalFocusableItems = Array.from(elements.qualityList.querySelectorAll('.track-item'));
         
-        // Find the index of current selection
+
         currentModalFocusIndex = QUALITY_PROFILES.findIndex(function(p) {
             return p.value === currentMaxBitrate;
         });
@@ -2733,7 +3027,7 @@ var PlayerController = (function() {
         var mediaSource = playbackInfo.MediaSource;
         var bitrate = 0;
         
-        // Get bitrate from media source
+
         if (mediaSource.Bitrate) {
             bitrate = mediaSource.Bitrate;
         } else if (playbackInfo.PlayMethod === 'Transcode' && playbackInfo.TranscodingInfo) {
@@ -2825,38 +3119,37 @@ var PlayerController = (function() {
         });
     }
 
-    function loadNextEpisode() {
-        console.log('[loadNextEpisode] START');
-        console.log('[loadNextEpisode] auth:', !!auth, 'itemData:', !!itemData);
+    /**
+     * Load adjacent episodes (previous and next) for navigation
+     */
+    function loadAdjacentEpisodes() {
+        console.log('[loadAdjacentEpisodes] START');
         
         if (!auth || !itemData) {
-            console.log('[loadNextEpisode] Missing auth or itemData, returning');
+            console.log('[loadAdjacentEpisodes] Missing auth or itemData, returning');
             return;
         }
         
-        console.log('[loadNextEpisode] itemData.Type:', itemData.Type, 'itemData.SeriesId:', itemData.SeriesId);
-        
-        // Only load next episode for TV episodes
+
         if (itemData.Type !== 'Episode' || !itemData.SeriesId) {
-            console.log('[loadNextEpisode] Not an episode or no SeriesId, returning');
+            console.log('[loadAdjacentEpisodes] Not an episode or no SeriesId, returning');
             return;
         }
         
-        var url = auth.serverAddress + '/Shows/' + itemData.SeriesId + '/Episodes';
-        var params = {
+        // Load next episode
+        var nextUrl = auth.serverAddress + '/Shows/' + itemData.SeriesId + '/Episodes';
+        var nextParams = {
             UserId: auth.userId,
             StartItemId: itemId,
             Limit: 2,
             Fields: 'Overview'
         };
         
-        var queryString = Object.keys(params).map(function(key) {
-            return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);
+        var nextQueryString = Object.keys(nextParams).map(function(key) {
+            return encodeURIComponent(key) + '=' + encodeURIComponent(nextParams[key]);
         }).join('&');
         
-        console.log('[loadNextEpisode] Making request to:', url + '?' + queryString);
-        
-        ajax.request(url + '?' + queryString, {
+        ajax.request(nextUrl + '?' + nextQueryString, {
             method: 'GET',
             headers: {
                 'X-Emby-Authorization': JellyfinAPI.getAuthHeader(auth.accessToken)
@@ -2864,22 +3157,72 @@ var PlayerController = (function() {
             success: function(response) {
                 try {
                     var data = response;
-                    console.log('[loadNextEpisode] Response:', data);
                     if (data && data.Items && data.Items.length > 1) {
-                        nextEpisodeData = data.Items[1]; // Second item is the next episode
-                        console.log('[loadNextEpisode] Next episode loaded:', nextEpisodeData.Name, nextEpisodeData.Id);
+                        nextEpisodeData = data.Items[1];
+                        console.log('[loadAdjacentEpisodes] Next episode:', nextEpisodeData.Name);
                     } else {
                         nextEpisodeData = null;
-                        console.log('[loadNextEpisode] No next episode available - Items length:', data && data.Items ? data.Items.length : 'N/A');
                     }
                 } catch (e) {
-                    console.log('[loadNextEpisode] Error parsing next episode:', e);
                     nextEpisodeData = null;
                 }
             },
-            error: function(status, response) {
-                console.log('[loadNextEpisode] Request failed - status:', status, 'response:', response);
+            error: function() {
                 nextEpisodeData = null;
+            }
+        });
+        
+        // Load previous episode by getting the episode before current one
+        var prevUrl = auth.serverAddress + '/Shows/' + itemData.SeriesId + '/Episodes';
+        var prevParams = {
+            UserId: auth.userId,
+            SeasonId: itemData.SeasonId || null,
+            Fields: 'Overview'
+        };
+        
+        // Only include SeasonId if it exists
+        if (!prevParams.SeasonId) {
+            delete prevParams.SeasonId;
+        }
+        
+        var prevQueryString = Object.keys(prevParams).map(function(key) {
+            return encodeURIComponent(key) + '=' + encodeURIComponent(prevParams[key]);
+        }).join('&');
+        
+        ajax.request(prevUrl + '?' + prevQueryString, {
+            method: 'GET',
+            headers: {
+                'X-Emby-Authorization': JellyfinAPI.getAuthHeader(auth.accessToken)
+            },
+            success: function(response) {
+                try {
+                    var data = response;
+                    if (data && data.Items && data.Items.length > 0) {
+
+                        var currentIndex = -1;
+                        for (var i = 0; i < data.Items.length; i++) {
+                            if (data.Items[i].Id === itemId) {
+                                currentIndex = i;
+                                break;
+                            }
+                        }
+                        
+                        if (currentIndex > 0) {
+                            previousEpisodeData = data.Items[currentIndex - 1];
+                            console.log('[loadAdjacentEpisodes] Previous episode:', previousEpisodeData.Name);
+                        } else {
+                            previousEpisodeData = null;
+                            console.log('[loadAdjacentEpisodes] No previous episode (first in list)');
+                        }
+                    } else {
+                        previousEpisodeData = null;
+                    }
+                } catch (e) {
+                    previousEpisodeData = null;
+                }
+            },
+            error: function() {
+                previousEpisodeData = null;
             }
         });
     }
@@ -2887,7 +3230,7 @@ var PlayerController = (function() {
     function checkSkipSegments(currentTime) {
         if (!mediaSegments || mediaSegments.length === 0) return;
         
-        // Check if skip intro feature is enabled
+
         var stored = storage.getUserPreference('jellyfin_settings', null);
         if (stored) {
             try {
@@ -2962,7 +3305,7 @@ var PlayerController = (function() {
                 return 'Skip Intro';
             case 'Outro':
             case 'Credits':
-                // Check if we have next episode data
+
                 if (nextEpisodeData) {
                     return 'Play Next Episode';
                 }
@@ -2999,27 +3342,33 @@ var PlayerController = (function() {
         var nextEpisodeId = nextEpisodeData.Id;
         console.log('[playNextEpisode] Saved next episode ID:', nextEpisodeId);
         
-        // Stop current playback reporting
+
         console.log('[playNextEpisode] Stopping current playback...');
         console.log('[playNextEpisode] Reporting playback stop...');
         reportPlaybackStop();
         console.log('[playNextEpisode] Stopping progress reporting...');
         stopProgressReporting();
+        stopBitrateMonitoring();
+        cleanupAudioNormalization();
         
-        // Clear current state
+
         console.log('[playNextEpisode] Clearing current state...');
         currentSkipSegment = null;
         skipOverlayVisible = false;
         hideSkipOverlay();
         mediaSegments = [];
         nextEpisodeData = null;
+        previousEpisodeData = null;
+        trickplayData = null;
+        trickplayResolution = null;
+        hideTrickplayBubble();
         
         // Update browser history so BACK goes to correct details page
         if (window && window.history && window.location) {
             var newUrl = 'player.html?id=' + nextEpisodeId;
             window.history.replaceState({}, '', newUrl);
         }
-        // Load and play the next episode (keep playerAdapter alive)
+
         console.log('[playNextEpisode] Setting itemId to:', nextEpisodeId);
         itemId = nextEpisodeId;
         console.log('[playNextEpisode] Calling loadItemAndPlay()...');
@@ -3052,6 +3401,298 @@ var PlayerController = (function() {
         videoPlayer.currentTime = skipToTime;
         hideSkipOverlay();
         console.log('[executeSkip] END');
+    }
+
+    // ============================================================================
+    // TRICKPLAY THUMBNAILS (Jellyfin Web Compatible)
+    // ============================================================================
+
+    /**
+     * Initialize trickplay data from item data
+     * Following jellyfin-web implementation exactly
+     */
+    function initializeTrickplay() {
+        trickplayData = null;
+        trickplayResolution = null;
+
+        if (!itemData || !itemData.Trickplay) {
+            console.log('[Trickplay] No trickplay data available for this item');
+            return;
+        }
+
+        // Get the primary media source ID
+        var mediaSourceId = null;
+        if (itemData.MediaSources && itemData.MediaSources.length > 0) {
+            mediaSourceId = itemData.MediaSources[0].Id;
+        }
+
+        if (mediaSourceId) {
+            initializeTrickplayForMediaSource(mediaSourceId);
+        }
+    }
+
+    /**
+     * Initialize trickplay for a specific media source ID
+     * @param {string} mediaSourceId - The media source ID to use
+     */
+    function initializeTrickplayForMediaSource(mediaSourceId) {
+        trickplayData = null;
+        trickplayResolution = null;
+
+        if (!itemData || !itemData.Trickplay) {
+            console.log('[Trickplay] No trickplay data available for this item');
+            return;
+        }
+
+        if (!mediaSourceId) {
+            console.log('[Trickplay] No media source ID provided');
+            return;
+        }
+
+        var trickplayResolutions = itemData.Trickplay[mediaSourceId];
+        if (!trickplayResolutions) {
+            console.log('[Trickplay] No trickplay resolutions for media source:', mediaSourceId);
+            return;
+        }
+
+        // Prefer highest resolution <= 20% of screen width (following jellyfin-web)
+        var maxWidth = window.screen.width * window.devicePixelRatio * 0.2;
+        var bestWidth = null;
+
+        for (var widthKey in trickplayResolutions) {
+            if (trickplayResolutions.hasOwnProperty(widthKey)) {
+                var info = trickplayResolutions[widthKey];
+                var width = info.Width;
+
+                if (!bestWidth || 
+                    (width < bestWidth && bestWidth > maxWidth) ||
+                    (width > bestWidth && width <= maxWidth)) {
+                    bestWidth = width;
+                }
+            }
+        }
+
+        if (bestWidth && trickplayResolutions[bestWidth]) {
+            trickplayResolution = trickplayResolutions[bestWidth];
+            trickplayData = {
+                mediaSourceId: mediaSourceId,
+                resolution: trickplayResolution
+            };
+
+            console.log('[Trickplay] Initialized with resolution:', bestWidth, 'Info:', trickplayResolution);
+
+            // Setup trickplay bubble dimensions
+            if (elements.trickplayThumb) {
+                elements.trickplayThumb.style.width = trickplayResolution.Width + 'px';
+                elements.trickplayThumb.style.height = trickplayResolution.Height + 'px';
+            }
+        }
+    }
+
+    /**
+     * Update trickplay bubble HTML - following jellyfin-web implementation exactly
+     * @param {number} positionTicks - Position in ticks
+     * @param {number} percent - Progress bar percentage
+     */
+    function updateTrickplayBubble(positionTicks, percent) {
+        if (!elements.trickplayBubble) return;
+
+        var bubble = elements.trickplayBubble;
+        var progressBarRect = elements.progressBar.getBoundingClientRect();
+
+        // Calculate bubble position
+        var bubblePos = progressBarRect.width * percent / 100;
+        bubble.style.left = bubblePos + 'px';
+
+        // If no trickplay data, just show time
+        if (!trickplayResolution || !trickplayData) {
+            bubble.classList.add('no-trickplay');
+            if (elements.trickplayTime) {
+                elements.trickplayTime.textContent = formatTime(positionTicks / TICKS_PER_SECOND);
+            }
+            if (elements.trickplayChapterName) {
+                elements.trickplayChapterName.textContent = '';
+            }
+            bubble.style.display = 'block';
+            return;
+        }
+
+        bubble.classList.remove('no-trickplay');
+
+        // Find current chapter name
+        var chapterName = '';
+        if (itemData && itemData.Chapters) {
+            for (var i = 0; i < itemData.Chapters.length; i++) {
+                var chapter = itemData.Chapters[i];
+                if (positionTicks >= chapter.StartPositionTicks) {
+                    chapterName = chapter.Name || '';
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Calculate trickplay tile position (following jellyfin-web exactly)
+        var currentTimeMs = positionTicks / 10000; // Ticks to milliseconds
+        var currentTile = Math.floor(currentTimeMs / trickplayResolution.Interval);
+        var tileSize = trickplayResolution.TileWidth * trickplayResolution.TileHeight;
+        var tileOffset = currentTile % tileSize;
+        var imageIndex = Math.floor(currentTile / tileSize);
+
+        var tileOffsetX = tileOffset % trickplayResolution.TileWidth;
+        var tileOffsetY = Math.floor(tileOffset / trickplayResolution.TileWidth);
+        var offsetX = -(tileOffsetX * trickplayResolution.Width);
+        var offsetY = -(tileOffsetY * trickplayResolution.Height);
+
+        // Build trickplay image URL (following jellyfin-web API format)
+        var imgSrc = auth.serverAddress + '/Videos/' + itemId + '/Trickplay/' + 
+                     trickplayResolution.Width + '/' + imageIndex + '.jpg?MediaSourceId=' + 
+                     trickplayData.mediaSourceId;
+
+        // Update thumbnail
+        if (elements.trickplayThumb) {
+            elements.trickplayThumb.style.backgroundImage = "url('" + imgSrc + "')";
+            elements.trickplayThumb.style.backgroundPositionX = offsetX + 'px';
+            elements.trickplayThumb.style.backgroundPositionY = offsetY + 'px';
+            elements.trickplayThumb.style.width = trickplayResolution.Width + 'px';
+            elements.trickplayThumb.style.height = trickplayResolution.Height + 'px';
+        }
+
+        // Update text
+        if (elements.trickplayTime) {
+            elements.trickplayTime.textContent = formatTime(positionTicks / TICKS_PER_SECOND);
+        }
+        if (elements.trickplayChapterName) {
+            elements.trickplayChapterName.textContent = chapterName;
+        }
+
+        bubble.style.display = 'block';
+    }
+
+    /**
+     * Show trickplay bubble
+     */
+    function showTrickplayBubble() {
+        if (elements.trickplayBubble) {
+            trickplayVisible = true;
+        }
+    }
+
+    /**
+     * Hide trickplay bubble
+     */
+    function hideTrickplayBubble() {
+        if (elements.trickplayBubble) {
+            elements.trickplayBubble.style.display = 'none';
+            trickplayVisible = false;
+        }
+    }
+
+    // ============================================================================
+    // AUDIO NORMALIZATION (Jellyfin Web Compatible)
+    // ============================================================================
+
+    /**
+     * Initialize audio normalization using Web Audio API
+     * Following jellyfin-web implementation
+     */
+    function initializeAudioNormalization() {
+        if (!audioNormalizationEnabled) {
+            console.log('[AudioNorm] Audio normalization disabled');
+            return;
+        }
+
+        // Check if item has normalization gain data
+        var trackGain = itemData && itemData.NormalizationGain;
+        var albumGain = null;
+
+        // Get album gain from media source if available
+        if (playbackInfo && playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
+            albumGain = playbackInfo.MediaSources[0].albumNormalizationGain || null;
+        }
+
+        // Use track gain, falling back to album gain (TrackGain mode - default in jellyfin-web)
+        var gainValue = trackGain || albumGain;
+
+        if (!gainValue) {
+            console.log('[AudioNorm] No normalization gain data available');
+            cleanupAudioNormalization();
+            return;
+        }
+
+        try {
+            // Create or reuse AudioContext
+            var AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) {
+                console.log('[AudioNorm] Web Audio API not supported');
+                return;
+            }
+
+            if (!audioContext) {
+                audioContext = new AudioContextClass();
+            }
+
+            // Resume audio context if suspended (required by browsers after user interaction)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
+            // Create gain node if not exists
+            if (!gainNode) {
+                gainNode = audioContext.createGain();
+                gainNode.connect(audioContext.destination);
+            }
+
+            // Create media element source if not exists
+            if (!sourceNode) {
+                sourceNode = audioContext.createMediaElementSource(videoPlayer);
+                sourceNode.connect(gainNode);
+            }
+
+            // Convert dB to linear gain (following jellyfin-web: Math.pow(10, normalizationGain / 20))
+            normalizationGain = Math.pow(10, gainValue / 20);
+            gainNode.gain.value = normalizationGain;
+
+            console.log('[AudioNorm] Applied normalization gain:', gainValue, 'dB -> linear:', normalizationGain);
+
+        } catch (error) {
+            console.error('[AudioNorm] Failed to initialize audio normalization:', error);
+            cleanupAudioNormalization();
+        }
+    }
+
+    /**
+     * Cleanup audio normalization resources
+     */
+    function cleanupAudioNormalization() {
+        if (gainNode) {
+            gainNode.gain.value = 1.0;
+        }
+        normalizationGain = 1.0;
+        // Note: We don't destroy the audioContext/sourceNode as they cannot be 
+        // recreated once destroyed for the same video element
+    }
+
+    /**
+     * Get current audio normalization setting
+     * @returns {string} 'TrackGain', 'AlbumGain', or 'Off'
+     */
+    function getAudioNormalizationMode() {
+        // Can be expanded to read from user settings storage
+        return audioNormalizationEnabled ? 'TrackGain' : 'Off';
+    }
+
+    /**
+     * Set audio normalization mode
+     * @param {string} mode - 'TrackGain', 'AlbumGain', or 'Off'
+     */
+    function setAudioNormalizationMode(mode) {
+        audioNormalizationEnabled = mode !== 'Off';
+        if (audioNormalizationEnabled && itemData) {
+            initializeAudioNormalization();
+        } else {
+            cleanupAudioNormalization();
+        }
     }
 
     return {

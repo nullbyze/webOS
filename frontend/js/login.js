@@ -1,3 +1,9 @@
+/**
+ * @module LoginController
+ * @description Authentication controller for Moonfin webOS
+ * Manages server discovery, user authentication, Quick Connect, and multi-server setup.
+ * Handles both single-server and multi-server authentication flows.
+ */
 var LoginController = (function() {
     'use strict';
 
@@ -519,6 +525,10 @@ var LoginController = (function() {
                 
                 if (!user) {
                     showError('Auto-login failed: user not found');
+                    ServerLogger.logAuthError('Auto-login failed: user not found', {
+                        username: lastLogin.username,
+                        serverAddress: lastLogin.serverAddress
+                    });
                     clearAutoLoginData();
                     setTimeout(function() {
                         showSavedServersOrServerInput();
@@ -535,6 +545,11 @@ var LoginController = (function() {
                     if (err || !authData || !authData.AccessToken) {
                         // Auto-login failed, show normal login
                         showError('Auto-login failed: password required. Please login manually.');
+                        ServerLogger.logAuthError('Auto-login failed: password required', {
+                            username: user.Name,
+                            serverAddress: lastLogin.serverAddress,
+                            error: err
+                        });
                         clearAutoLoginData();
                         setTimeout(function() {
                             // Show user selection for manual login

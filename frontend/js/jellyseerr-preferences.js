@@ -1,9 +1,8 @@
-/*
- * Jellyseerr Preferences Manager
- * High-level interface for managing Jellyseerr settings and preferences
- * 
- * Provides a simple API for getting/setting Jellyseerr configuration
- * with proper defaults and validation.
+/**
+ * @module JellyseerrPreferences
+ * @description High-level Jellyseerr settings and preferences manager
+ * Provides API for getting/setting Jellyseerr configuration with defaults and validation.
+ * Manages global settings and per-user authentication preferences.
  */
 
 var JellyseerrPreferences = (function() {

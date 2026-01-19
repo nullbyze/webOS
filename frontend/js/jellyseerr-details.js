@@ -1,6 +1,8 @@
-/*
- * Jellyseerr Details Controller
- * Handles media details display and request functionality
+/**
+ * @module JellyseerrDetailsController
+ * @description Jellyseerr media details page controller
+ * Displays comprehensive media information and handles content requests.
+ * Supports movies and TV shows with season/episode selection for requests.
  */
 
 var JellyseerrDetailsController = (function() {

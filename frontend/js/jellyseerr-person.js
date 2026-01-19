@@ -1,6 +1,8 @@
 /**
- * Jellyseerr Person Details Page
- * Displays detailed information about a cast member/person
+ * @module JellyseerrPerson
+ * @description Jellyseerr person details page
+ * Displays detailed cast/crew information, biography, and filmography.
+ * Handles remote navigation for person credits and media appearances.
  */
 
 (function() {

@@ -1,6 +1,7 @@
 /**
- * Track Selector Module
- * Shared functionality for audio and subtitle track selection modals
+ * @module TrackSelector
+ * @description Shared functionality for audio and subtitle track selection modals
+ * Builds track lists, handles selection, and manages focus state for player modals.
  */
 
 var TrackSelector = (function() {

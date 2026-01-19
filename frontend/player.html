@@ -12,6 +12,7 @@
     <script src="hls.js" charset="utf-8"></script>
     <script src="js/polyfills.js" charset="utf-8"></script>
     <script src="js/storage.js" charset="utf-8"></script>
+    <script src="js/server-logger.js" charset="utf-8"></script>
     <script src="js/accent-color.js" charset="utf-8"></script>
     <script src="js/ajax.js" charset="utf-8"></script>
     <script src="js/keycodes.js" charset="utf-8"></script>
@@ -22,6 +23,7 @@
     <script src="js/device-profile.js" charset="utf-8"></script>
     <script src="js/track-selector.js" charset="utf-8"></script>
     <script src="js/video-player-adapter.js" charset="utf-8"></script>
+    <script src="js/webos-video-plugin.js" charset="utf-8"></script>
     <script src="js/player.js" charset="utf-8"></script>
 </head>
 <body>
@@ -85,6 +87,15 @@
                 <div id="progressBar" class="progress-bar">
                     <div id="progressFill" class="progress-fill"></div>
                     <div id="seekIndicator" class="seek-indicator"></div>
+                    <div id="trickplayBubble" class="trickplay-bubble" style="display: none;">
+                        <div class="trickplay-thumb-container">
+                            <div id="trickplayThumb" class="trickplay-thumb"></div>
+                        </div>
+                        <div class="trickplay-text-container">
+                            <div id="trickplayChapterName" class="trickplay-chapter-name"></div>
+                            <div id="trickplayTime" class="trickplay-time"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="time-info">
                     <span id="timeDisplay" class="time-display">0:00 / 0:00</span>

@@ -1,6 +1,8 @@
 /**
- * Library Controller
- * Handles library grid navigation, filtering, and item selection
+ * @module LibraryController
+ * @description Library grid view controller for Moonfin webOS
+ * Handles library content display with grid navigation, sorting, filtering,
+ * and item selection. Supports played/unplayed filtering and favorites.
  */
 var LibraryController = {
     libraryId: null,

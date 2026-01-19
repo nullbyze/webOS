@@ -1,9 +1,9 @@
-/*
- * Jellyseerr API Client for webOS
- * Handles Jellyseerr server communication, authentication, and API calls
- * 
- * This module provides a complete HTTP client for interacting with Jellyseerr API
- * including cookie-based session management and API key authentication.
+/**
+ * @module JellyseerrAPI
+ * @description Jellyseerr API client for webOS
+ * Handles server communication, authentication, and API calls for Jellyseerr.
+ * Supports cookie-based session management and API key authentication.
+ * Provides content discovery, media requests, and user management.
  */
 
 var JellyseerrAPI = (function() {

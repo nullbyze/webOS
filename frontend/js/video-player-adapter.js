@@ -9,7 +9,16 @@
  */
 
 /**
- * Media Error Types
+ * @module VideoPlayerAdapter
+ * @description Abstraction layer for multiple playback engines with webOS-specific improvements.
+ * Supports native HTML5, HLS.js, Shaka Player, and webOS native API with automatic engine selection.
+ * Features enhanced error handling, playback health monitoring, and automatic fallback system.
+ * Licensed under MPL 2.0 (see header for full license)
+ */
+
+/**
+ * Media Error Types 
+ * @constant
  */
 const MediaError = {
     NETWORK_ERROR: 'NetworkError',
@@ -17,7 +26,32 @@ const MediaError = {
     MEDIA_NOT_SUPPORTED: 'MediaNotSupported',
     FATAL_HLS_ERROR: 'FatalHlsError',
     SERVER_ERROR: 'ServerError',
-    NO_MEDIA_ERROR: 'NoMediaError'
+    NO_MEDIA_ERROR: 'NoMediaError',
+    PLAYBACK_STUCK: 'PlaybackStuck',
+    LOAD_TIMEOUT: 'LoadTimeout',
+    CODEC_UNSUPPORTED: 'CodecUnsupported',
+    DRM_ERROR: 'DrmError'
+};
+
+/**
+ * Recovery Strategy Types
+ * @constant
+ */
+const RecoveryStrategy = {
+    RETRY: 'retry',
+    FALLBACK_ADAPTER: 'fallback_adapter',
+    FALLBACK_TRANSCODE: 'fallback_transcode',
+    NONE: 'none'
+};
+
+/**
+ * Adapter priority for fallback chain
+ * @constant
+ */
+const AdapterPriority = {
+    SHAKA: 1,
+    WEBOS_NATIVE: 2,
+    HTML5: 3
 };
 
 /**
@@ -27,12 +61,367 @@ let recoverDecodingErrorDate;
 let recoverSwapAudioCodecDate;
 
 /**
+ * PlaybackHealthMonitor - Monitors playback health and detects issues
+ * @class
+ */
+class PlaybackHealthMonitor {
+    /**
+     * @param {HTMLVideoElement} videoElement - Video element to monitor
+     * @param {Object} options - Monitor options
+     * @param {Function} options.onHealthIssue - Callback when health issue detected
+     * @param {Function} options.onHealthy - Callback when playback is healthy
+     * @param {boolean} options.isDirectPlay - Whether this is direct play (affects thresholds)
+     */
+    constructor(videoElement, options = {}) {
+        this.videoElement = videoElement;
+        this.options = options;
+        this.checkCount = 0;
+        this.lastTime = 0;
+        this.playbackEverStarted = false;
+        this.healthCheckTimer = null;
+        this.isRunning = false;
+        this.adapter = options.adapter || null;
+        
+        // Configuration based on playback type
+        this.maxChecks = options.isDirectPlay ? 5 : 8;
+        this.checkInterval = 2000; // 2 seconds
+        this.pausedThreshold = options.isDirectPlay ? 3 : 4;
+    }
+
+    /**
+     * Start monitoring playback health
+     */
+    start() {
+        if (this.isRunning) return;
+        
+        this.isRunning = true;
+        this.checkCount = 0;
+        this.lastTime = 0;
+        this.playbackEverStarted = false;
+        
+        console.log('[HealthMonitor] Starting health check (isDirectPlay=' + !!this.options.isDirectPlay + ')');
+        
+        // Start checking after initial delay
+        this.healthCheckTimer = setTimeout(() => this.checkHealth(), this.checkInterval);
+    }
+
+    /**
+     * Stop monitoring
+     */
+    stop() {
+        this.isRunning = false;
+        if (this.healthCheckTimer) {
+            clearTimeout(this.healthCheckTimer);
+            this.healthCheckTimer = null;
+        }
+        console.log('[HealthMonitor] Stopped');
+    }
+
+    /**
+     * Get current playback time from adapter or video element
+     * @private
+     * @returns {number} Current time in seconds
+     */
+    getCurrentTime() {
+        if (this.adapter && typeof this.adapter.getCurrentTime === 'function') {
+            return this.adapter.getCurrentTime();
+        }
+        return this.videoElement.currentTime;
+    }
+
+    /**
+     * Check if playback is paused
+     * @private
+     * @returns {boolean} True if paused
+     */
+    isPaused() {
+        if (this.adapter && typeof this.adapter.isPaused === 'function') {
+            return this.adapter.isPaused();
+        }
+        return this.videoElement.paused;
+    }
+
+    /**
+     * Check if using a native adapter (Shaka, webOS native)
+     * @private
+     * @returns {boolean} True if native adapter
+     */
+    isNativeAdapter() {
+        if (!this.adapter || !this.adapter.getName) return false;
+        const name = this.adapter.getName();
+        return name === 'ShakaPlayer' || name === 'WebOSNative';
+    }
+
+    /**
+     * Perform health check
+     * @private
+     */
+    checkHealth() {
+        if (!this.isRunning) return;
+
+        this.checkCount++;
+        const currentTime = this.getCurrentTime();
+        
+        // Track if playback ever progressed
+        if (currentTime > 0) {
+            this.playbackEverStarted = true;
+        }
+
+        // For native adapters (Shaka, webOS), use simpler checks
+        if (this.isNativeAdapter()) {
+            const paused = this.isPaused();
+            const isStuck = !paused && currentTime === this.lastTime && this.checkCount > 1;
+            
+            console.log('[HealthMonitor] Check #' + this.checkCount + ' (native):', {
+                currentTime: currentTime,
+                paused: paused,
+                adapter: this.adapter.getName(),
+                stuck: isStuck
+            });
+            
+            // For native adapters, only fail if stuck for multiple checks
+            if (isStuck && this.checkCount >= 3) {
+                console.log('[HealthMonitor] Native adapter playback appears stuck');
+                this.reportIssue({
+                    type: 'stuck',
+                    currentTime: currentTime,
+                    checkCount: this.checkCount,
+                    adapter: this.adapter.getName()
+                });
+                return;
+            }
+            
+            // Initialize callbacks on first successful check
+            if (this.checkCount === 1 && currentTime >= 0 && this.options.onHealthy) {
+                this.options.onHealthy({ firstCheck: true, currentTime: currentTime });
+            }
+            
+            // Playback is fine, schedule next check
+            this.lastTime = currentTime;
+            this.healthCheckTimer = setTimeout(() => this.checkHealth(), this.checkInterval);
+            return;
+        }
+
+        // HTML5 video element checks
+        const videoPlayer = this.videoElement;
+        
+        // Check 1: Is playback stuck? (time not advancing when it should)
+        const isStuck = !videoPlayer.paused && currentTime === this.lastTime;
+        
+        // Check 1b: Stuck at 0:00 - common for unsupported codecs
+        const stuckAtStart = currentTime === 0 && 
+            videoPlayer.readyState < HTMLMediaElement.HAVE_FUTURE_DATA && this.checkCount >= 2;
+        
+        // Check 1c: Video still paused after several checks - canplay never fired
+        const stuckPaused = videoPlayer.paused && currentTime === 0 && 
+            videoPlayer.readyState < HTMLMediaElement.HAVE_METADATA && this.checkCount >= this.pausedThreshold;
+
+        // Check 2: Video element in bad state?
+        const readyStateThreshold = this.options.isDirectPlay ? 3 : 4;
+        const isBadState =
+            videoPlayer.error ||
+            videoPlayer.networkState === HTMLMediaElement.NETWORK_NO_SOURCE ||
+            (videoPlayer.readyState < HTMLMediaElement.HAVE_CURRENT_DATA &&
+                this.checkCount >= readyStateThreshold);
+
+        // Check 3: No video or audio tracks?
+        let noTracks = false;
+        if (videoPlayer.videoTracks && videoPlayer.audioTracks) {
+            noTracks = videoPlayer.videoTracks.length === 0 || videoPlayer.audioTracks.length === 0;
+        }
+        
+        // Log current state for debugging
+        console.log('[HealthMonitor] Check #' + this.checkCount + ':', {
+            currentTime: currentTime,
+            paused: videoPlayer.paused,
+            readyState: videoPlayer.readyState,
+            networkState: videoPlayer.networkState,
+            hasError: !!videoPlayer.error
+        });
+
+        // Check if max checks reached without playback
+        if (this.checkCount >= this.maxChecks) {
+            if (!this.playbackEverStarted && currentTime === 0) {
+                console.log('[HealthMonitor] Playback never started after ' + this.checkCount + ' checks');
+                this.reportIssue({
+                    type: 'never_started',
+                    readyState: videoPlayer.readyState,
+                    networkState: videoPlayer.networkState,
+                    error: videoPlayer.error ? videoPlayer.error.message : 'none'
+                });
+                return;
+            }
+        }
+
+        // Report issue if detected
+        if (isStuck || isBadState || noTracks || stuckAtStart || stuckPaused) {
+            console.log('[HealthMonitor] Health issue detected:', {
+                stuck: isStuck,
+                stuckAtStart: stuckAtStart,
+                stuckPaused: stuckPaused,
+                badState: isBadState,
+                noTracks: noTracks
+            });
+            
+            this.reportIssue({
+                type: isStuck ? 'stuck' : (isBadState ? 'bad_state' : (noTracks ? 'no_tracks' : 'start_failed')),
+                stuck: isStuck,
+                stuckAtStart: stuckAtStart,
+                stuckPaused: stuckPaused,
+                badState: isBadState,
+                noTracks: noTracks,
+                readyState: videoPlayer.readyState,
+                networkState: videoPlayer.networkState,
+                currentTime: currentTime,
+                paused: videoPlayer.paused
+            });
+            return;
+        }
+
+        // Initialize callbacks on first successful check
+        if (this.checkCount === 1 && currentTime >= 0 && this.options.onHealthy) {
+            this.options.onHealthy({ firstCheck: true, currentTime: currentTime });
+        }
+
+        // All checks passed, schedule next check
+        this.lastTime = currentTime;
+        this.healthCheckTimer = setTimeout(() => this.checkHealth(), this.checkInterval);
+    }
+
+    /**
+     * Report health issue to callback
+     * @private
+     * @param {Object} details - Issue details
+     */
+    reportIssue(details) {
+        this.stop();
+        
+        // Log to ServerLogger if available
+        if (typeof ServerLogger !== 'undefined') {
+            const logMessage = this.options.isDirectPlay ? 
+                'Direct play health check failed' : 
+                'Transcode playback health check failed';
+            ServerLogger.logPlaybackWarning(logMessage, details);
+        }
+        
+        if (this.options.onHealthIssue) {
+            this.options.onHealthIssue(details);
+        }
+    }
+}
+
+/**
+ * ErrorRecoveryManager - Handles error recovery and fallback strategies
+ * @class
+ */
+class ErrorRecoveryManager {
+    /**
+     * @param {Object} options - Recovery options
+     * @param {Function} options.onFallback - Callback when fallback needed
+     * @param {number} options.maxRetries - Maximum retry attempts
+     */
+    constructor(options = {}) {
+        this.options = options;
+        this.retryCount = 0;
+        this.maxRetries = options.maxRetries || 3;
+        this.lastErrorTime = 0;
+        this.errorCooldown = 3000; // 3 seconds between retry attempts
+    }
+
+    /**
+     * Determine recovery strategy for an error
+     * @param {Object} error - Error object
+     * @param {string} adapterName - Current adapter name
+     * @returns {Object} Recovery strategy and details
+     */
+    getRecoveryStrategy(error, adapterName) {
+        const errorType = error.type || MediaError.NETWORK_ERROR;
+        const now = Date.now();
+        
+        // Don't retry too quickly
+        if (now - this.lastErrorTime < this.errorCooldown) {
+            console.log('[Recovery] Error cooldown active, skipping retry');
+            return { strategy: RecoveryStrategy.NONE, reason: 'cooldown' };
+        }
+        
+        this.lastErrorTime = now;
+
+        // Determine strategy based on error type
+        switch (errorType) {
+            case MediaError.NETWORK_ERROR:
+                if (this.retryCount < this.maxRetries) {
+                    this.retryCount++;
+                    return { 
+                        strategy: RecoveryStrategy.RETRY, 
+                        retryNumber: this.retryCount,
+                        delay: 1000 * this.retryCount // Exponential backoff
+                    };
+                }
+                return { strategy: RecoveryStrategy.FALLBACK_ADAPTER, reason: 'network_retries_exhausted' };
+
+            case MediaError.MEDIA_DECODE_ERROR:
+            case MediaError.CODEC_UNSUPPORTED:
+                // Codec issues - try fallback adapter or transcode
+                if (adapterName === 'ShakaPlayer' || adapterName === 'WebOSNative') {
+                    return { strategy: RecoveryStrategy.FALLBACK_ADAPTER, reason: 'decode_error' };
+                }
+                return { strategy: RecoveryStrategy.FALLBACK_TRANSCODE, reason: 'codec_unsupported' };
+
+            case MediaError.PLAYBACK_STUCK:
+            case MediaError.LOAD_TIMEOUT:
+                // Stuck playback - try transcode as server may be having issues
+                return { strategy: RecoveryStrategy.FALLBACK_TRANSCODE, reason: 'playback_stuck' };
+
+            case MediaError.SERVER_ERROR:
+                // Server error (4xx/5xx) - don't auto-retry, let user decide
+                return { strategy: RecoveryStrategy.NONE, reason: 'server_error' };
+
+            case MediaError.DRM_ERROR:
+                // DRM issues - likely device doesn't support content protection
+                return { strategy: RecoveryStrategy.FALLBACK_TRANSCODE, reason: 'drm_unsupported' };
+
+            default:
+                if (this.retryCount < this.maxRetries) {
+                    this.retryCount++;
+                    return { strategy: RecoveryStrategy.RETRY, retryNumber: this.retryCount };
+                }
+                return { strategy: RecoveryStrategy.NONE, reason: 'unknown_error' };
+        }
+    }
+
+    /**
+     * Reset retry counter
+     */
+    reset() {
+        this.retryCount = 0;
+        this.lastErrorTime = 0;
+    }
+
+    /**
+     * Log recovery attempt to server
+     * @param {string} action - Recovery action taken
+     * @param {Object} details - Recovery details
+     */
+    logRecoveryAttempt(action, details) {
+        if (typeof ServerLogger !== 'undefined') {
+            ServerLogger.logPlaybackWarning('Playback recovery: ' + action, details);
+        }
+        console.log('[Recovery] ' + action + ':', details);
+    }
+}
+
+/**
  * Base class for video player adapters
  */
 class VideoPlayerAdapter {
     constructor(videoElement) {
         this.videoElement = videoElement;
         this.eventHandlers = {};
+        this.healthMonitor = null;
+        this.recoveryManager = null;
+        this.isRecovering = false;
+        this.loadAttempts = 0;
+        this.maxLoadAttempts = 3;
     }
 
     /**
@@ -55,6 +444,7 @@ class VideoPlayerAdapter {
 
     /**
      * Play the video
+     * @returns {Promise<void>}
      */
     play() {
         return this.videoElement.play();
@@ -65,6 +455,20 @@ class VideoPlayerAdapter {
      */
     pause() {
         this.videoElement.pause();
+    }
+
+    /**
+     * Stop playback and cleanup
+     */
+    stop() {
+        try {
+            this.videoElement.pause();
+            this.videoElement.removeAttribute('src');
+            this.videoElement.load();
+        } catch (e) {
+            console.warn('[Adapter] Error stopping playback:', e);
+        }
+        this.stopHealthMonitor();
     }
 
     /**
@@ -116,6 +520,14 @@ class VideoPlayerAdapter {
     }
 
     /**
+     * Get buffered ranges
+     * @returns {TimeRanges|null} Buffered time ranges
+     */
+    getBuffered() {
+        return this.videoElement.buffered;
+    }
+
+    /**
      * Register event handler
      * @param {string} event - Event name
      * @param {Function} handler - Event handler function
@@ -128,6 +540,17 @@ class VideoPlayerAdapter {
     }
 
     /**
+     * Remove event handler
+     * @param {string} event - Event name
+     * @param {Function} handler - Handler to remove
+     */
+    off(event, handler) {
+        if (this.eventHandlers[event]) {
+            this.eventHandlers[event] = this.eventHandlers[event].filter(h => h !== handler);
+        }
+    }
+
+    /**
      * Emit event to registered handlers
      * @param {string} event - Event name
      * @param {*} data - Event data
@@ -136,6 +559,90 @@ class VideoPlayerAdapter {
         if (this.eventHandlers[event]) {
             this.eventHandlers[event].forEach(handler => handler(data));
         }
+    }
+
+    /**
+     * Start playback health monitoring
+     * @param {Object} options - Monitor options
+     * @param {boolean} options.isDirectPlay - Whether this is direct play
+     * @param {Function} options.onHealthIssue - Callback for health issues
+     * @param {Function} options.onHealthy - Callback when healthy
+     */
+    startHealthMonitor(options = {}) {
+        this.stopHealthMonitor();
+        
+        this.healthMonitor = new PlaybackHealthMonitor(this.videoElement, {
+            ...options,
+            adapter: this,
+            onHealthIssue: (details) => {
+                this.emit('healthissue', details);
+                if (options.onHealthIssue) {
+                    options.onHealthIssue(details);
+                }
+            },
+            onHealthy: (details) => {
+                this.emit('healthy', details);
+                if (options.onHealthy) {
+                    options.onHealthy(details);
+                }
+            }
+        });
+        
+        this.healthMonitor.start();
+    }
+
+    /**
+     * Stop health monitoring
+     */
+    stopHealthMonitor() {
+        if (this.healthMonitor) {
+            this.healthMonitor.stop();
+            this.healthMonitor = null;
+        }
+    }
+
+    /**
+     * Initialize error recovery manager
+     * @param {Object} options - Recovery options
+     */
+    initRecoveryManager(options = {}) {
+        this.recoveryManager = new ErrorRecoveryManager({
+            ...options,
+            onFallback: (details) => {
+                this.emit('fallbackrequired', details);
+                if (options.onFallback) {
+                    options.onFallback(details);
+                }
+            }
+        });
+    }
+
+    /**
+     * Handle playback error with recovery logic
+     * @param {Object} error - Error object
+     * @returns {Object} Recovery strategy
+     */
+    handleError(error) {
+        console.error('[Adapter] Playback error:', error);
+        
+        // Log to server if available
+        if (typeof ServerLogger !== 'undefined') {
+            ServerLogger.logPlaybackError('Adapter error: ' + this.getName(), {
+                errorType: error.type || 'unknown',
+                errorMessage: error.message || error.details || 'Unknown error',
+                adapter: this.getName(),
+                currentTime: this.getCurrentTime(),
+                readyState: this.videoElement.readyState,
+                networkState: this.videoElement.networkState
+            });
+        }
+        
+        // Get recovery strategy if manager is initialized
+        if (this.recoveryManager) {
+            return this.recoveryManager.getRecoveryStrategy(error, this.getName());
+        }
+        
+        return { strategy: RecoveryStrategy.NONE, reason: 'no_recovery_manager' };
     }
 
     /**
@@ -171,10 +678,28 @@ class VideoPlayerAdapter {
     }
 
     /**
+     * Get playback statistics
+     * @returns {Object} Playback stats
+     */
+    getStats() {
+        return { categories: [] };
+    }
+
+    /**
+     * Get real-time playback stats (codec, quality, HDR info)
+     * @returns {Object|null} Detailed playback statistics
+     */
+    getPlaybackStats() {
+        return null;
+    }
+
+    /**
      * Destroy the player and cleanup resources
      */
     async destroy() {
+        this.stopHealthMonitor();
         this.eventHandlers = {};
+        this.recoveryManager = null;
     }
 
     /**
@@ -183,6 +708,23 @@ class VideoPlayerAdapter {
      */
     getName() {
         return 'BaseAdapter';
+    }
+
+    /**
+     * Get adapter priority for fallback ordering
+     * @returns {number} Priority (lower = higher priority)
+     */
+    getPriority() {
+        return 999;
+    }
+
+    /**
+     * Check if adapter supports a specific feature
+     * @param {string} feature - Feature name
+     * @returns {boolean} True if supported
+     */
+    supportsFeature(feature) {
+        return false;
     }
 }
 
@@ -572,12 +1114,56 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
     }
 
     async destroy() {
+        this.stopHealthMonitor();
         if (this.player) {
             await this.player.destroy();
             this.player = null;
         }
         this.initialized = false;
         await super.destroy();
+    }
+
+    /**
+     * Stop playback
+     */
+    stop() {
+        this.stopHealthMonitor();
+        if (this.player) {
+            try {
+                this.player.unload();
+            } catch (e) {
+                console.warn('[ShakaAdapter] Error unloading:', e);
+            }
+        }
+        super.stop();
+    }
+
+    /**
+     * Get adapter priority for fallback ordering
+     * @returns {number} Priority (lower = higher priority)
+     */
+    getPriority() {
+        return AdapterPriority.SHAKA;
+    }
+
+    /**
+     * Check if adapter supports a specific feature
+     * @param {string} feature - Feature name
+     * @returns {boolean} True if supported
+     */
+    supportsFeature(feature) {
+        switch (feature) {
+            case 'hdr':
+                return this.hasHDRSupport;
+            case 'dolbyvision':
+                return this.hasDolbyVisionSupport;
+            case 'adaptive':
+                return true;
+            case 'drm':
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -907,9 +1493,58 @@ class WebOSVideoAdapter extends VideoPlayerAdapter {
         }
     }
 
+    /**
+     * Detect codec support on webOS device
+     * @private
+     * @returns {Object} Codec support information
+     */
+    detectCodecSupport() {
+        const support = {
+            h264: true, // All webOS TVs support H.264
+            hevc: false,
+            hevc10bit: false,
+            vp9: false,
+            av1: false,
+            dolbyVision: false,
+            hdr10: false
+        };
+
+        try {
+            // Use webOS device info if available
+            if (window.webOS && window.webOS.deviceInfo) {
+                // webOS 4.0+ generally supports HEVC
+                // webOS 5.0+ supports HDR10 and some Dolby Vision
+                // webOS 6.0+ has broader AV1 and VP9 support
+            }
+
+            // Use MediaSource API for detection
+            if (window.MediaSource && typeof window.MediaSource.isTypeSupported === 'function') {
+                support.hevc = window.MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L93.B0"');
+                support.hevc10bit = window.MediaSource.isTypeSupported('video/mp4; codecs="hev1.2.4.L153.B0"');
+                support.vp9 = window.MediaSource.isTypeSupported('video/webm; codecs="vp9"');
+                support.av1 = window.MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"');
+                support.dolbyVision = window.MediaSource.isTypeSupported('video/mp4; codecs="dvhe.05.07"') ||
+                                     window.MediaSource.isTypeSupported('video/mp4; codecs="dvhe.08.07"');
+                support.hdr10 = support.hevc10bit;
+            }
+        } catch (e) {
+            console.warn('[WebOSAdapter] Error detecting codec support:', e);
+        }
+
+        return support;
+    }
+
     async load(url, options = {}) {
         if (!this.initialized) {
             throw new Error('WebOS Luna adapter not initialized');
+        }
+
+        console.log('[WebOSAdapter] Loading:', url.substring(0, 80) + '...');
+
+        // Clear any existing load timeout
+        if (this.loadTimeout) {
+            clearTimeout(this.loadTimeout);
+            this.loadTimeout = null;
         }
 
         try {
@@ -1083,6 +1718,28 @@ class WebOSVideoAdapter extends VideoPlayerAdapter {
         }
     }
 
+    /**
+     * Stop playback
+     */
+    stop() {
+        if (this.loadTimeout) {
+            clearTimeout(this.loadTimeout);
+            this.loadTimeout = null;
+        }
+        
+        if (this.mediaObject) {
+            try {
+                this.mediaObject.unload();
+            } catch (e) {
+                console.warn('[WebOSAdapter] Error unloading media:', e);
+            }
+            this.mediaObject = null;
+        }
+        
+        this.loadRetryCount = 0;
+        super.stop();
+    }
+
     selectAudioTrack(trackId) {
         // Audio track selection via Luna service would require selectTrack method
         // For now, return false as this is handled by server-side transcoding
@@ -1157,6 +1814,7 @@ class WebOSVideoAdapter extends VideoPlayerAdapter {
         this.videoInfo = null;
         this.audioInfo = null;
         this.initialized = false;
+        this.loadRetryCount = 0;
         await super.destroy();
     }
 
@@ -1235,6 +1893,81 @@ class WebOSVideoAdapter extends VideoPlayerAdapter {
         stats.categories.push(videoCategory);
         return stats;
     }
+
+    /**
+     * Get adapter priority for fallback ordering
+     * @returns {number} Priority (lower = higher priority)
+     */
+    getPriority() {
+        return AdapterPriority.WEBOS_NATIVE;
+    }
+
+    /**
+     * Check if adapter supports a specific feature
+     * @param {string} feature - Feature name
+     * @returns {boolean} True if supported
+     */
+    supportsFeature(feature) {
+        if (!this.codecSupport) return false;
+        
+        switch (feature) {
+            case 'hdr':
+                return this.codecSupport.hdr10;
+            case 'dolbyvision':
+                return this.codecSupport.dolbyVision;
+            case 'hevc':
+                return this.codecSupport.hevc;
+            case 'av1':
+                return this.codecSupport.av1;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Get playback statistics
+     * @returns {Object} Playback stats
+     */
+    getStats() {
+        const stats = {
+            categories: []
+        };
+
+        if (!this.videoElement) {
+            return stats;
+        }
+
+        const videoCategory = {
+            type: 'video',
+            stats: []
+        };
+
+        // Video resolution
+        if (this.videoElement.videoWidth && this.videoElement.videoHeight) {
+            videoCategory.stats.push({
+                label: 'Video Resolution',
+                value: `${this.videoElement.videoWidth}x${this.videoElement.videoHeight}`
+            });
+        }
+
+        // Adapter info
+        videoCategory.stats.push({
+            label: 'Adapter',
+            value: 'webOS Native'
+        });
+
+        // Dropped/corrupted frames
+        if (this.videoElement.getVideoPlaybackQuality) {
+            const quality = this.videoElement.getVideoPlaybackQuality();
+            videoCategory.stats.push({
+                label: 'Dropped Frames',
+                value: quality.droppedVideoFrames || 0
+            });
+        }
+
+        stats.categories.push(videoCategory);
+        return stats;
+    }
 }
 
 /**
@@ -1279,17 +2012,38 @@ function getCrossOriginValue(mediaSource) {
 
 /**
  * HTML5 Video Element Adapter (Fallback)
+ * Enhanced with better error recovery and HLS.js improvements
  */
 class HTML5VideoAdapter extends VideoPlayerAdapter {
     constructor(videoElement) {
         super(videoElement);
         this.initialized = false;
         this.hlsPlayer = null;
+        this.loadRetryCount = 0;
+        this.maxLoadRetries = 2;
     }
 
     async initialize() {
         this.initialized = true;
         return true;
+    }
+
+    /**
+     * Stop playback
+     */
+    stop() {
+        // Cleanup HLS.js player
+        if (this.hlsPlayer) {
+            try {
+                this.hlsPlayer.destroy();
+            } catch (err) {
+                console.warn('[HTML5Adapter] Error destroying HLS player:', err);
+            }
+            this.hlsPlayer = null;
+        }
+        
+        this.loadRetryCount = 0;
+        super.stop();
     }
 
     async load(url, options = {}) {
@@ -1893,6 +2647,8 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
     }
 
     async destroy() {
+        this.stopHealthMonitor();
+        
         // Cleanup HLS.js player
         if (this.hlsPlayer) {
             try {
@@ -1905,17 +2661,45 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
 
         this.videoElement.innerHTML = '';
         this.initialized = false;
+        this.loadRetryCount = 0;
         await super.destroy();
     }
 
     getName() {
         return 'HTML5Video';
     }
+
+    /**
+     * Get adapter priority for fallback ordering
+     * @returns {number} Priority (lower = higher priority)
+     */
+    getPriority() {
+        return AdapterPriority.HTML5;
+    }
+
+    /**
+     * Check if adapter supports a specific feature
+     * @param {string} feature - Feature name
+     * @returns {boolean} True if supported
+     */
+    supportsFeature(feature) {
+        switch (feature) {
+            case 'hls':
+                return typeof Hls !== 'undefined' && Hls.isSupported();
+            case 'native-hls':
+                const video = document.createElement('video');
+                return !!(video.canPlayType('application/vnd.apple.mpegurl') || 
+                         video.canPlayType('application/x-mpegURL'));
+            default:
+                return false;
+        }
+    }
 }
 
 /**
  * Video Player Factory
  * Creates the best available player adapter with automatic fallback
+ * Enhanced with better adapter selection and fallback chain
  */
 class VideoPlayerFactory {
     /**
@@ -1925,10 +2709,51 @@ class VideoPlayerFactory {
      * @param {boolean} options.preferWebOS - Prefer WebOS native adapter for DirectPlay (MKV, HEVC, etc.)
      * @param {boolean} options.preferHTML5 - Prefer HTML5 video element for direct files
      * @param {boolean} options.preferHLS - Prefer HTML5+HLS.js for transcoded HLS streams (matches jellyfin-web)
+     * @param {boolean} options.preferShaka - Prefer Shaka Player for adaptive streaming
+     * @param {string} options.contentType - Content type hint ('hdr', 'dolbyvision', 'hls', 'direct')
      * @returns {Promise<VideoPlayerAdapter>} Initialized player adapter
      */
     static async createPlayer(videoElement, options = {}) {
+        console.log('[PlayerFactory] Creating player with options:', JSON.stringify(options));
+        
         // Determine adapter priority based on playback needs
+        var adapters = VideoPlayerFactory.getAdapterPriority(options);
+
+        for (var i = 0; i < adapters.length; i++) {
+            var AdapterClass = adapters[i];
+            try {
+                console.log('[PlayerFactory] Attempting:', AdapterClass.name || 'UnknownAdapter');
+                var adapter = new AdapterClass(videoElement);
+                var success = await adapter.initialize();
+                
+                if (success) {
+                    console.log('[PlayerFactory] Using:', adapter.getName());
+                    
+                    // Log to server for diagnostics
+                    if (typeof ServerLogger !== 'undefined') {
+                        ServerLogger.logPlaybackInfo('Player adapter selected', {
+                            adapter: adapter.getName(),
+                            options: options
+                        });
+                    }
+                    
+                    return adapter;
+                }
+            } catch (error) {
+                console.warn('[PlayerFactory]', (AdapterClass.name || 'UnknownAdapter'), 'failed:', error.message);
+            }
+        }
+
+        throw new Error('No video player adapter could be initialized');
+    }
+
+    /**
+     * Get adapter priority list based on options and content type
+     * @param {Object} options - Creation options
+     * @returns {Array<Class>} Ordered list of adapter classes
+     */
+    static getAdapterPriority(options = {}) {
+        // Default priority: Shaka > webOS Native > HTML5
         var adapters = [
             ShakaPlayerAdapter,
             HTML5VideoAdapter
@@ -1957,24 +2782,154 @@ class VideoPlayerFactory {
                 HTML5VideoAdapter,
                 ShakaPlayerAdapter
             ];
+        } else if (options.preferShaka) {
+            // Explicit Shaka preference
+            console.log('[PlayerFactory] preferShaka mode - using Shaka adapter');
+            adapters = [
+                ShakaPlayerAdapter,
+                HTML5VideoAdapter,
+                WebOSVideoAdapter
+            ];
         }
 
+        // Content type hints can further refine the order
+        if (options.contentType === 'dolbyvision' || options.contentType === 'hdr') {
+            // For HDR content, prefer native adapters that support hardware decoding
+            adapters = [
+                WebOSVideoAdapter,
+                ShakaPlayerAdapter,
+                HTML5VideoAdapter
+            ];
+        }
+
+        return adapters;
+    }
+
+    /**
+     * Get the next fallback adapter after the current one fails
+     * @param {VideoPlayerAdapter} currentAdapter - Current failed adapter
+     * @param {Object} options - Creation options
+     * @returns {Class|null} Next adapter class or null if none available
+     */
+    static getNextFallback(currentAdapter, options = {}) {
+        const adapters = VideoPlayerFactory.getAdapterPriority(options);
+        const currentName = currentAdapter.getName();
+        
+        // Find current adapter in the list
+        let foundCurrent = false;
         for (var i = 0; i < adapters.length; i++) {
             var AdapterClass = adapters[i];
+            var testAdapter = new AdapterClass(document.createElement('video'));
+            
+            if (foundCurrent) {
+                return AdapterClass;
+            }
+            
+            if (testAdapter.getName() === currentName) {
+                foundCurrent = true;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Create a fallback adapter after the current one fails
+     * @param {HTMLVideoElement} videoElement - Video element to use
+     * @param {VideoPlayerAdapter} currentAdapter - Current failed adapter
+     * @param {Object} options - Creation options
+     * @returns {Promise<VideoPlayerAdapter|null>} New adapter or null if none available
+     */
+    static async createFallback(videoElement, currentAdapter, options = {}) {
+        const adapters = VideoPlayerFactory.getAdapterPriority(options);
+        const currentName = currentAdapter.getName();
+        
+        console.log('[PlayerFactory] Creating fallback for:', currentName);
+        
+        // Find adapters after the current one in priority
+        let foundCurrent = false;
+        for (var i = 0; i < adapters.length; i++) {
+            var AdapterClass = adapters[i];
+            var tempAdapter = new AdapterClass(document.createElement('video'));
+            
+            if (tempAdapter.getName() === currentName) {
+                foundCurrent = true;
+                continue;
+            }
+            
+            if (!foundCurrent) continue;
+            
             try {
-                console.log('[PlayerFactory] Attempting:', AdapterClass.name || 'UnknownAdapter');
+                console.log('[PlayerFactory] Trying fallback:', AdapterClass.name || 'UnknownAdapter');
                 var adapter = new AdapterClass(videoElement);
                 var success = await adapter.initialize();
                 
                 if (success) {
-                    console.log('[PlayerFactory] Using:', adapter.getName());
+                    console.log('[PlayerFactory] Fallback successful:', adapter.getName());
+                    
+                    if (typeof ServerLogger !== 'undefined') {
+                        ServerLogger.logPlaybackInfo('Fallback adapter selected', {
+                            previousAdapter: currentName,
+                            newAdapter: adapter.getName()
+                        });
+                    }
+                    
                     return adapter;
                 }
             } catch (error) {
-                console.warn('[PlayerFactory]', (AdapterClass.name || 'UnknownAdapter'), 'failed:', error.message);
+                console.warn('[PlayerFactory] Fallback failed:', error.message);
             }
         }
-
-        throw new Error('No video player adapter could be initialized');
+        
+        console.log('[PlayerFactory] No more fallback adapters available');
+        return null;
     }
+
+    /**
+     * Get list of available adapters with their capabilities
+     * @returns {Array<Object>} List of adapter info
+     */
+    static getAvailableAdapters() {
+        const adapters = [
+            ShakaPlayerAdapter,
+            WebOSVideoAdapter,
+            HTML5VideoAdapter
+        ];
+        
+        const available = [];
+        
+        for (var i = 0; i < adapters.length; i++) {
+            var AdapterClass = adapters[i];
+            try {
+                var testAdapter = new AdapterClass(document.createElement('video'));
+                available.push({
+                    name: testAdapter.getName(),
+                    priority: testAdapter.getPriority(),
+                    supportsHDR: testAdapter.supportsFeature('hdr'),
+                    supportsDolbyVision: testAdapter.supportsFeature('dolbyvision'),
+                    supportsHLS: testAdapter.supportsFeature('hls') || testAdapter.supportsFeature('native-hls')
+                });
+            } catch (e) {
+                // Adapter not available
+            }
+        }
+        
+        return available.sort((a, b) => a.priority - b.priority);
+    }
+}
+
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        VideoPlayerAdapter,
+        VideoPlayerFactory,
+        PlaybackHealthMonitor,
+        ErrorRecoveryManager,
+        ShakaPlayerAdapter,
+        WebOSVideoAdapter,
+        HTML5VideoAdapter,
+        MediaError,
+        RecoveryStrategy,
+        AdapterPriority
+    };
 }

@@ -1,6 +1,8 @@
-/*
- * Jellyseerr API Models
- * Data models and validation for Jellyseerr API responses
+/**
+ * @module JellyseerrModels
+ * @description Jellyseerr API data models and validation
+ * Defines request statuses, media types, and data transformation utilities.
+ * Provides type validation and API response normalization.
  */
 
 var JellyseerrModels = (function() {

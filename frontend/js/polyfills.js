@@ -1,7 +1,8 @@
 /**
- * Polyfills for older Chromium compatibility
+ * @module Polyfills
+ * @description Polyfills for older Chromium compatibility on webOS
  * Supports: webOS 3.x (Chromium 38), webOS 4-6 (Chromium 53-68)
- * Provides URLSearchParams, Promise, Symbol, and ES6+ Array/String/Object methods
+ * Provides URLSearchParams, Promise, Symbol, and ES6+ Array/String/Object methods.
  */
 
 (function () {
