@@ -53,10 +53,10 @@ var JellyfinAPI = (function() {
     const LAN_SCAN_TIMEOUT_MS = 2000;
 
     function initDeviceId() {
-        deviceId = storage.get('_deviceId2', false);
+        deviceId = storage.get('_deviceId4', false);
         if (!deviceId) {
             deviceId = btoa([navigator.userAgent, new Date().getTime()].join('|')).replace(/=/g, '1');
-            storage.set('_deviceId2', deviceId, false);
+            storage.set('_deviceId4', deviceId, false);
             Logger.info('Generated new device ID:', deviceId);
         }
         return deviceId;

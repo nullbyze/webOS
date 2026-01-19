@@ -11,7 +11,6 @@ var PlayerController = (function() {
     let itemId = null;
     let itemData = null;
     let videoPlayer = null;
-    /** @type {Object|null} Video player adapter (Shaka/webOS/HTML5) */
     let playerAdapter = null;
     let controlsVisible = false;
     let controlsTimeout = null;
@@ -24,7 +23,7 @@ var PlayerController = (function() {
     let subtitleStreams = [];
     let currentAudioIndex = -1;
     let currentSubtitleIndex = -1;
-    let audioLanguageMap = []; // Maps Jellyfin stream index to language code
+    let audioLanguageMap = [];
     let modalFocusableItems = [];
     let currentModalFocusIndex = 0;
     let activeModal = null;
@@ -33,26 +32,23 @@ var PlayerController = (function() {
     let loadingTimeout = null;
     let seekDebounceTimer = null;
     let isSeeking = false;
-    let isSeekingActive = false; // True while user is actively seeking (before debounce completes)
+    let isSeekingActive = false;
     let pendingSeekPosition = null;
     let hasTriedTranscode = false;
     let currentMediaSource = null;
     let isTranscoding = false;
     let currentPlaybackSpeed = 1.0;
-    let isDolbyVisionMedia = false; // Track if current media is Dolby Vision
-    let willUseDirectPlay = false; // Track if we plan to use direct play before loading
-    let playbackHealthCheckTimer = null; // Timer for checking playback health
-    let forcePlayMode = null; // User override for playback mode ('direct' or 'transcode')
+    let isDolbyVisionMedia = false;
+    let willUseDirectPlay = false;
+    let playbackHealthCheckTimer = null;
+    let forcePlayMode = null;
     const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     let bitrateUpdateInterval = null;
-    
-    // Skip intro/outro variables
     let mediaSegments = [];
     let currentSkipSegment = null;
     let skipOverlayVisible = false;
     let nextEpisodeData = null;
     
-    // Loading state machine
     const LoadingState = {
         IDLE: 'idle',
         INITIALIZING: 'initializing',
@@ -64,7 +60,6 @@ var PlayerController = (function() {
 
     let elements = {};
 
-    // Timing Constants
     const PROGRESS_REPORT_INTERVAL_MS = 10000;
     const CONTROLS_HIDE_DELAY_MS = 3000;
     const SKIP_INTERVAL_SECONDS = 10;
@@ -75,8 +70,6 @@ var PlayerController = (function() {
     const AUTO_HIDE_CONTROLS_MS = 2000;
     const DIRECT_PLAY_TIMEOUT_MS = 15000;
     const TRANSCODE_TIMEOUT_MS = 45000;
-    
-    // Jellyfin Ticks Conversion
     const TICKS_PER_SECOND = 10000000;
 
     /**
@@ -95,7 +88,7 @@ var PlayerController = (function() {
         }
         
         hasTriedTranscode = true;
-        willUseDirectPlay = false; // Reset flag since we're switching to transcoding
+        willUseDirectPlay = false;
         
         var modifiedSource = Object.assign({}, mediaSource);
         modifiedSource.SupportsDirectPlay = false;
@@ -346,7 +339,7 @@ var PlayerController = (function() {
             // Reuse adapter if it already matches the preference
             if (playerAdapter) {
                 var name = playerAdapter.getName();
-                if (options.preferWebOS && name === 'WebOSVideo') {
+                if (options.preferWebOS && name === 'WebOSLuna') {
                     return;
                 }
                 if ((options.preferHTML5 || options.preferHLS) && name === 'HTML5Video') {
@@ -644,8 +637,8 @@ var PlayerController = (function() {
         var requestData = {
             UserId: auth.userId,
             DeviceProfile: getDeviceProfile(),
-            // For Live TV, we need to auto-open the live stream
-            AutoOpenLiveStream: isLiveTV
+            AutoOpenLiveStream: true,
+            IsPlayback: true
         };
 
         ajax.request(playbackUrl, {
@@ -657,6 +650,49 @@ var PlayerController = (function() {
             data: requestData,
             success: function(response) {
                 playbackInfo = response;
+                
+                if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
+                    var mediaSource = playbackInfo.MediaSources[0];
+                    console.log('[Player] ========== PLAYBACK INFO DEBUG ==========');
+                    console.log('[Player] SupportsDirectPlay:', mediaSource.SupportsDirectPlay);
+                    console.log('[Player] SupportsDirectStream:', mediaSource.SupportsDirectStream);
+                    console.log('[Player] SupportsTranscoding:', mediaSource.SupportsTranscoding);
+                    console.log('[Player] Container:', mediaSource.Container);
+                    console.log('[Player] Bitrate:', mediaSource.Bitrate);
+                    console.log('[Player] Size:', mediaSource.Size);
+                    
+                    var videoStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Video'; }) : null;
+                    if (videoStream) {
+                        console.log('[Player] Video Codec:', videoStream.Codec);
+                        console.log('[Player] Video Profile:', videoStream.Profile);
+                        console.log('[Player] Video Level:', videoStream.Level);
+                        console.log('[Player] Video RangeType:', videoStream.VideoRangeType);
+                        console.log('[Player] Video BitDepth:', videoStream.BitDepth);
+                        console.log('[Player] Video Resolution:', videoStream.Width + 'x' + videoStream.Height);
+                        console.log('[Player] Video IsAVC:', videoStream.IsAVC);
+                        console.log('[Player] Video IsInterlaced:', videoStream.IsInterlaced);
+                    }
+                    
+                    var audioStream = mediaSource.MediaStreams ? mediaSource.MediaStreams.find(function(s) { return s.Type === 'Audio'; }) : null;
+                    if (audioStream) {
+                        console.log('[Player] Audio Codec:', audioStream.Codec);
+                        console.log('[Player] Audio Profile:', audioStream.Profile);
+                        console.log('[Player] Audio Channels:', audioStream.Channels);
+                        console.log('[Player] Audio SampleRate:', audioStream.SampleRate);
+                        console.log('[Player] Audio BitDepth:', audioStream.BitDepth);
+                    }
+                    
+                    if (mediaSource.DirectPlayInfo) {
+                        console.log('[Player] DirectPlay Info:', JSON.stringify(mediaSource.DirectPlayInfo));
+                    }
+                    
+                    if (mediaSource.TranscodeReasons && mediaSource.TranscodeReasons.length > 0) {
+                        console.log('[Player] TRANSCODE REASONS:', mediaSource.TranscodeReasons.join(', '));
+                    }
+                    
+                    console.log('[Player] Full MediaSource:', JSON.stringify(mediaSource, null, 2));
+                    console.log('[Player] =========================================');
+                }
                 
                 // Detect if this is Dolby Vision content and set flag for adapter selection
                 if (playbackInfo.MediaSources && playbackInfo.MediaSources.length > 0) {
@@ -839,11 +875,22 @@ var PlayerController = (function() {
             console.log('[Player] DeviceProfile recommended play method:', recommendedPlayMethod);
         }
         
+        console.log('[Player] Media source SupportsDirectPlay:', mediaSource.SupportsDirectPlay);
+        console.log('[Player] Media source SupportsDirectStream:', mediaSource.SupportsDirectStream);
+        console.log('[Player] Media source SupportsTranscoding:', mediaSource.SupportsTranscoding);
+        console.log('[Player] Container:', mediaSource.Container);
+        console.log('[Player] Video codec:', videoStream ? videoStream.Codec : 'none');
+        console.log('[Player] Audio codec:', audioStream ? audioStream.Codec : 'none');
+        
         var canDirectPlay = mediaSource.SupportsDirectPlay && 
             mediaSource.Container && 
             safeContainers.indexOf(mediaSource.Container.toLowerCase()) !== -1 &&
             videoStream && videoStream.Codec && safeVideoCodecs.indexOf(videoStream.Codec.toLowerCase()) !== -1 &&
             audioStream && audioStream.Codec && safeAudioCodecs.indexOf(audioStream.Codec.toLowerCase()) !== -1;
+        
+        var canDirectStream = !canDirectPlay && mediaSource.SupportsDirectStream &&
+            mediaSource.Container &&
+            videoStream && videoStream.Codec && safeVideoCodecs.indexOf(videoStream.Codec.toLowerCase()) !== -1;
         
         // Consider HDR capability from DeviceProfile
         if (isHDR && typeof DeviceProfile !== 'undefined') {
@@ -893,31 +940,81 @@ var PlayerController = (function() {
             mimeType = 'application/x-mpegURL';
             isTranscoding = true;
         } else if (shouldUseDirectPlay) {
+            console.log('[Player] Using DirectPlay');
             willUseDirectPlay = true;
             streamUrl = auth.serverAddress + '/Videos/' + itemId + '/stream';
             params.append('Static', 'true');
             var container = mediaSource.Container || 'mp4';
-            mimeType = 'video/' + container;
+            // Map container to proper MIME type
+            if (container === 'mkv' || container === 'matroska') {
+                mimeType = 'video/x-matroska';
+            } else if (container === 'webm') {
+                mimeType = 'video/webm';
+            } else if (container === 'ts' || container === 'mpegts' || container === 'm2ts') {
+                mimeType = 'video/mp2t';
+            } else if (container === 'avi') {
+                mimeType = 'video/x-msvideo';
+            } else if (container === 'mov') {
+                mimeType = 'video/quicktime';
+            } else {
+                mimeType = 'video/' + container;
+            }
+            console.log('[Player] DirectPlay MIME type:', mimeType, 'for container:', container);
             useDirectPlay = true;
             isTranscoding = false;
-        } else if (canTranscode) {
+        } else if (canDirectStream) {
+            console.log('[Player] Using DirectStream via HLS (video passthrough to TS container)');
             streamUrl = auth.serverAddress + '/Videos/' + itemId + '/master.m3u8';
             
-            // Determine best transcoding codec based on capabilities
+            // On webOS 4, HLS.js uses MediaSource API which cannot decode HEVC
+            // Must transcode HEVC to H.264 for HLS.js playback
+            var hlsVideoCodec = videoStream.Codec;
+            var allowVideoStreamCopy = true;
+            if (typeof DeviceProfile !== 'undefined') {
+                var caps = DeviceProfile.getCapabilities();
+                if (caps.webosVersion === 4 && videoStream.Codec === 'hevc') {
+                    console.log('[Player] webOS 4: Transcoding HEVC to H.264 for HLS.js compatibility');
+                    hlsVideoCodec = 'h264';
+                    allowVideoStreamCopy = false;  // Force transcode, don't copy HEVC
+                }
+            }
+            params.append('VideoCodec', hlsVideoCodec);
+            params.append('AudioCodec', 'aac');
+            params.append('AudioStreamIndex', audioStream.Index);
+            params.append('VideoStreamIndex', videoStream.Index);
+            params.append('VideoBitrate', '120000000');  // High bitrate to avoid re-encoding
+            params.append('AudioBitrate', '384000');
+            params.append('MaxWidth', '3840');
+            params.append('MaxHeight', '2160');
+            params.append('SegmentLength', '6');
+            params.append('MinSegments', '1');
+            params.append('BreakOnNonKeyFrames', 'false');
+            params.append('CopyTimestamps', 'true');
+            if (allowVideoStreamCopy) {
+                params.append('AllowVideoStreamCopy', 'true');
+            }
+            
+            mimeType = 'application/x-mpegURL';
+            isTranscoding = true;
+        } else if (canTranscode) {
+            console.log('[Player] Using full HLS Transcode');
+            streamUrl = auth.serverAddress + '/Videos/' + itemId + '/master.m3u8';
+            
             var transVideoCodec = 'h264';
             var transAudioCodec = 'aac';
             var transMaxBitrate = '20000000';
             
-            // If webOS 4+ supports HEVC in HLS, prefer HEVC transcoding for HDR content
             if (typeof DeviceProfile !== 'undefined') {
                 var caps = DeviceProfile.getCapabilities();
-                if (caps.hevc && caps.webosVersion >= 4 && (isHDR || isHEVC10bit)) {
+                if (caps.hevc && caps.webosVersion >= 5 && (isHDR || isHEVC10bit)) {
                     transVideoCodec = 'hevc';
                     console.log('[Player] Using HEVC transcoding for HDR content');
                 }
-                // Check if AC3/EAC3 is preferred over AAC
-                if (caps.ac3 || caps.eac3) {
+                if (caps.webosVersion >= 5 && caps.nativeHlsFmp4 && (caps.ac3 || caps.eac3)) {
                     transAudioCodec = 'aac,ac3,eac3';
+                    console.log('[Player] webOS 5+ with fMP4: Enabling AC3/EAC3 for HLS');
+                } else {
+                    console.log('[Player] webOS ' + caps.webosVersion + ': Using AAC only for HLS TS compatibility');
                 }
             }
             
@@ -963,10 +1060,12 @@ var PlayerController = (function() {
 
         // Prepare the correct adapter based on playback method
         var creationOptions = {};
-        if (isDolbyVision) {
-            creationOptions.preferWebOS = true;
-        } else if (useDirectPlay) {
+        if (useDirectPlay) {
+            // For DirectPlay on webOS, use HTML5 video element
+            // webOS extends the browser with native MKV/HEVC/etc. support via hardware decoders
+            // The Luna API (com.webos.media) renders to a separate video plane that web apps can't access
             creationOptions.preferHTML5 = true;
+            creationOptions.skipMimeType = true; // Don't set MIME type - let webOS auto-detect
         } else if (isTranscoding) {
             // For transcoded HLS streams, prefer HTML5+HLS.js for best compatibility
             // This matches jellyfin-web behavior
@@ -979,11 +1078,11 @@ var PlayerController = (function() {
         console.log('[Player] Starting playback');
         console.log('[Player] Method:', isLiveTV ? 'Live TV' : (useDirectPlay ? 'Direct Play' : 'Transcode'));
         console.log('[Player] Container:', mediaSource.Container);
-        console.log('[Player] Video Codec:', videoStream ? videoStream.Codec : 'none');
+        console.log('[Player] Video Codec (source):', videoStream ? videoStream.Codec : 'none');
         if (isDolbyVision || isHEVC10bit) {
             console.log('[Player] Note: For best Dolby Vision/HDR10 support, transcoding to HLS is recommended');
         }
-        console.log('[Player] URL:', videoUrl.substring(0, 100) + '...');
+        console.log('[Player] Full URL:', videoUrl);
         
         var startPosition = 0;
         var urlPosition = getStartPositionFromUrl();
@@ -1028,6 +1127,20 @@ var PlayerController = (function() {
     function startPlaybackHealthCheck(mediaSource) {
         console.log('[Player] Starting playback health check for direct play');
         
+        // Skip health check for WebOSLuna adapter - it doesn't use the HTML5 video element
+        // Luna renders video on a hardware layer behind the web app
+        if (playerAdapter && playerAdapter.getName() === 'WebOSLuna') {
+            console.log('[Player] Skipping health check for WebOSLuna adapter (uses hardware video layer)');
+            return;
+        }
+        
+        // On webOS, give the native decoder more time to initialize
+        // MKV/HEVC playback may take longer to start than standard formats
+        var isWebOS = window.webOS || window.PalmSystem;
+        var initialDelay = isWebOS ? 5000 : 2000;
+        var checkInterval = isWebOS ? 3000 : 2000;
+        var maxChecks = isWebOS ? 5 : 3;
+        
         // Clear any existing check
         if (playbackHealthCheckTimer) {
             clearTimeout(playbackHealthCheckTimer);
@@ -1037,8 +1150,8 @@ var PlayerController = (function() {
         var lastTime = videoPlayer.currentTime;
         
         function checkHealth() {
-            // Stop checking after 3 attempts or if we're transcoding
-            if (checkCount >= 3 || isTranscoding) {
+            // Stop checking after max attempts or if we're transcoding
+            if (checkCount >= maxChecks || isTranscoding) {
                 playbackHealthCheckTimer = null;
                 return;
             }
@@ -1046,25 +1159,30 @@ var PlayerController = (function() {
             checkCount++;
             var currentTime = videoPlayer.currentTime;
             
-            // Check 1: Is playback stuck? (time not advancing)
-            var isStuck = !videoPlayer.paused && currentTime === lastTime && currentTime > 0;
+            console.log('[Player] Health check #' + checkCount + ':', {
+                currentTime: currentTime,
+                paused: videoPlayer.paused,
+                readyState: videoPlayer.readyState,
+                networkState: videoPlayer.networkState,
+                error: videoPlayer.error ? videoPlayer.error.code : 'none'
+            });
             
-            // Check 2: Video element in bad state?
-            var isBadState = videoPlayer.error || 
-                            videoPlayer.networkState === HTMLMediaElement.NETWORK_NO_SOURCE ||
-                            (videoPlayer.readyState < HTMLMediaElement.HAVE_CURRENT_DATA && !videoPlayer.paused);
+            // Check 1: Is playback stuck? (time not advancing after video has started)
+            // Only check this if we've had at least some progress
+            var isStuck = !videoPlayer.paused && currentTime === lastTime && currentTime > 0 && lastTime > 0;
             
-            // Check 3: No video or audio tracks? (for containers with track support)
-            var noTracks = false;
-            if (videoPlayer.videoTracks && videoPlayer.audioTracks) {
-                noTracks = videoPlayer.videoTracks.length === 0 || videoPlayer.audioTracks.length === 0;
-            }
+            // Check 2: Video element has an error
+            var hasError = !!videoPlayer.error;
             
-            if (isStuck || isBadState || noTracks) {
+            // Check 3: No source at all (NETWORK_NO_SOURCE = 3)
+            var noSource = videoPlayer.networkState === 3;
+            
+            if (hasError || noSource) {
                 console.log('[Player] Playback health issue detected:', {
                     stuck: isStuck,
-                    badState: isBadState,
-                    noTracks: noTracks,
+                    hasError: hasError,
+                    noSource: noSource,
+                    errorCode: videoPlayer.error ? videoPlayer.error.code : 'none',
                     readyState: videoPlayer.readyState,
                     networkState: videoPlayer.networkState
                 });
@@ -1073,14 +1191,21 @@ var PlayerController = (function() {
                 if (attemptTranscodeFallback(mediaSource, 'Playback health check failed')) {
                     console.log('[Player] Falling back to HLS transcoding due to playback issues');
                 }
+            } else if (isStuck && checkCount >= 2) {
+                // Only fail on stuck playback after multiple checks
+                console.log('[Player] Playback appears stuck after ' + checkCount + ' checks');
+                playbackHealthCheckTimer = null;
+                if (attemptTranscodeFallback(mediaSource, 'Playback stuck')) {
+                    console.log('[Player] Falling back to HLS transcoding due to stuck playback');
+                }
             } else {
                 lastTime = currentTime;
-                playbackHealthCheckTimer = setTimeout(checkHealth, 2000); // Check every 2 seconds
+                playbackHealthCheckTimer = setTimeout(checkHealth, checkInterval);
             }
         }
         
-        // Start checking after 2 seconds (give it time to start)
-        playbackHealthCheckTimer = setTimeout(checkHealth, 2000);
+        // Start checking after initial delay (give decoder time to initialize)
+        playbackHealthCheckTimer = setTimeout(checkHealth, initialDelay);
     }
 
     function handlePlaybackLoadError(error, mediaSource, isDirectPlay) {
@@ -1210,10 +1335,6 @@ var PlayerController = (function() {
         });
     }
 
-    // ============================================================================
-    // PLAYBACK REPORTING
-    // ============================================================================
-
     function reportPlaybackStart() {
         makePlaybackRequest(
             auth.serverAddress + '/Sessions/Playing',
@@ -1271,14 +1392,6 @@ var PlayerController = (function() {
             progressInterval = null;
         }
     }
-
-    // ============================================================================
-    // PLAYBACK CONTROLS
-    // ============================================================================
-
-    // ============================================================================
-    // PLAYBACK CONTROLS
-    // ============================================================================
 
     function togglePlayPause() {
         if (videoPlayer.paused) {
@@ -1472,10 +1585,6 @@ var PlayerController = (function() {
             }
         }
     }
-
-    // ============================================================================
-    // VIDEO EVENT HANDLERS
-    // ============================================================================
 
     function onPlay() {
     }
@@ -1680,10 +1789,6 @@ var PlayerController = (function() {
         }
     }
 
-    // ============================================================================
-    // LOADING STATE MANAGEMENT
-    // ============================================================================
-
     function showLoading() {
         if (elements.loadingIndicator) {
             elements.loadingIndicator.style.display = 'flex';
@@ -1786,10 +1891,6 @@ var PlayerController = (function() {
             }
         }
     }
-
-    // ============================================================================
-    // TRACK SELECTION
-    // ============================================================================
 
     function showAudioTrackSelector() {
         

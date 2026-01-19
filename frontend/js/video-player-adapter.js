@@ -658,194 +658,582 @@ class ShakaPlayerAdapter extends VideoPlayerAdapter {
 }
 
 /**
- * webOS Native Video API Adapter
+ * webOS Luna Service Video Adapter
+ * Uses luna://com.webos.media for hardware-accelerated playback of all container formats
+ * Including MKV, MP4, AVI, TS, FLV, etc.
  */
 class WebOSVideoAdapter extends VideoPlayerAdapter {
     constructor(videoElement) {
         super(videoElement);
-        this.mediaObject = null;
+        this.mediaId = null;
         this.initialized = false;
         this.currentUrl = null;
+        this.duration = 0;
+        this.currentTime = 0;
+        this.isPaused = true;
+        this.isBuffering = false;
+        this.sourceInfo = null;
+        this.videoInfo = null;
+        this.audioInfo = null;
+        this.appId = 'org.moonfin.webos'; // Must match appinfo.json
+        this.subscriptionActive = false;
+        this.lunaServiceAvailable = false;
     }
 
     async initialize() {
         try {
-            // Check if webOS media API is available
-            if (!window.webOS || !window.webOS.media) {
-                return false;
+            // Check if webOS Luna service bridge is available
+            // This is available on webOS TV devices
+            if (typeof window.webOS !== 'undefined' && typeof window.webOS.service !== 'undefined') {
+                console.log('[WebOSLuna] Luna Service Bridge available');
+                this.lunaServiceAvailable = true;
+                this.initialized = true;
+                
+                // Setup video element for punch-through (transparent to show Luna video layer)
+                this.setupVideoElement();
+                return true;
+            }
+            
+            // Also check for PalmServiceBridge (lower-level API)
+            if (typeof window.PalmServiceBridge !== 'undefined') {
+                console.log('[WebOSLuna] PalmServiceBridge available');
+                this.lunaServiceAvailable = true;
+                this.initialized = true;
+                
+                this.setupVideoElement();
+                return true;
             }
 
-            this.initialized = true;
-            return true;
-        } catch (error) {
+            console.log('[WebOSLuna] No Luna service API available - not a webOS device');
             return false;
+        } catch (error) {
+            console.error('[WebOSLuna] Initialize error:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Setup video element for webOS punch-through rendering
+     * The Luna media service renders video on a hardware layer behind the web app
+     * The video element needs to be transparent to show this layer
+     */
+    setupVideoElement() {
+        if (this.videoElement) {
+            // Make video element transparent punch-through
+            this.videoElement.style.backgroundColor = 'transparent';
+            this.videoElement.style.visibility = 'visible';
+            
+            // Set webOS-specific attributes
+            this.videoElement.setAttribute('mediaPlaybackRequiresUserGesture', 'false');
+        }
+    }
+
+    /**
+     * Make a Luna service request
+     * @param {string} service - Luna service URL
+     * @param {string} method - Method name
+     * @param {Object} parameters - Request parameters
+     * @returns {Promise<Object>} Response
+     */
+    lunaRequest(service, method, parameters = {}) {
+        return new Promise((resolve, reject) => {
+            const uri = service + '/' + method;
+            console.log('[WebOSLuna] Request:', uri, JSON.stringify(parameters));
+
+            if (window.webOS && window.webOS.service && window.webOS.service.request) {
+                // Use webOS.service.request if available
+                window.webOS.service.request(service, {
+                    method: method,
+                    parameters: parameters,
+                    onSuccess: (response) => {
+                        console.log('[WebOSLuna] Success:', method, response);
+                        resolve(response);
+                    },
+                    onFailure: (error) => {
+                        console.error('[WebOSLuna] Failure:', method, error);
+                        reject(error);
+                    }
+                });
+            } else if (window.PalmServiceBridge) {
+                // Fallback to PalmServiceBridge
+                const bridge = new PalmServiceBridge();
+                bridge.onservicecallback = (response) => {
+                    try {
+                        const parsed = JSON.parse(response);
+                        if (parsed.returnValue === false) {
+                            console.error('[WebOSLuna] Error:', method, parsed);
+                            reject(parsed);
+                        } else {
+                            console.log('[WebOSLuna] Success:', method, parsed);
+                            resolve(parsed);
+                        }
+                    } catch (e) {
+                        reject({ errorText: 'Failed to parse response', response: response });
+                    }
+                };
+                bridge.call(uri, JSON.stringify(parameters));
+            } else {
+                reject({ errorText: 'No Luna service API available' });
+            }
+        });
+    }
+
+    /**
+     * Subscribe to media events using Luna service
+     */
+    subscribeToMediaEvents() {
+        if (!this.mediaId || this.subscriptionActive) return;
+
+        console.log('[WebOSLuna] Subscribing to media events for:', this.mediaId);
+        
+        const subscribeParams = {
+            mediaId: this.mediaId
+        };
+
+        // Use -n 2 style subscription (continuous)
+        if (window.webOS && window.webOS.service && window.webOS.service.request) {
+            this.subscriptionService = window.webOS.service.request('luna://com.webos.media', {
+                method: 'subscribe',
+                parameters: subscribeParams,
+                subscribe: true,
+                onSuccess: (response) => {
+                    this.handleMediaEvent(response);
+                },
+                onFailure: (error) => {
+                    console.error('[WebOSLuna] Subscription error:', error);
+                }
+            });
+            this.subscriptionActive = true;
+        } else if (window.PalmServiceBridge) {
+            // PalmServiceBridge subscription
+            this.subscriptionBridge = new PalmServiceBridge();
+            this.subscriptionBridge.onservicecallback = (response) => {
+                try {
+                    const parsed = JSON.parse(response);
+                    this.handleMediaEvent(parsed);
+                } catch (e) {
+                    console.error('[WebOSLuna] Subscription parse error:', e);
+                }
+            };
+            this.subscriptionBridge.call('luna://com.webos.media/subscribe', JSON.stringify(subscribeParams));
+            this.subscriptionActive = true;
+        }
+    }
+
+    /**
+     * Handle media events from Luna service subscription
+     */
+    handleMediaEvent(event) {
+        // Current playback time
+        if (event.currentTime !== undefined) {
+            this.currentTime = event.currentTime / 1000; // Convert ms to seconds
+            this.emit('timeupdate', { currentTime: this.currentTime });
+        }
+
+        // Buffer range
+        if (event.bufferRange) {
+            this.emit('bufferRange', event.bufferRange);
+        }
+
+        // Buffering start
+        if (event.bufferingStart) {
+            this.isBuffering = true;
+            this.emit('buffering', true);
+        }
+
+        // Buffering end
+        if (event.bufferingEnd) {
+            this.isBuffering = false;
+            this.emit('buffering', false);
+        }
+
+        // Source info (contains duration, container, streams)
+        if (event.sourceInfo) {
+            this.sourceInfo = event.sourceInfo;
+            this.duration = (event.sourceInfo.duration || 0) / 1000; // Convert ms to seconds
+            console.log('[WebOSLuna] Source info:', this.sourceInfo);
+            console.log('[WebOSLuna] Duration:', this.duration, 'seconds');
+            console.log('[WebOSLuna] Container:', this.sourceInfo.container);
+            this.emit('loadedmetadata', { duration: this.duration, sourceInfo: this.sourceInfo });
+        }
+
+        // Video info
+        if (event.videoInfo) {
+            this.videoInfo = event.videoInfo;
+            console.log('[WebOSLuna] Video info:', this.videoInfo);
+            this.emit('videoInfo', this.videoInfo);
+        }
+
+        // Audio info
+        if (event.audioInfo) {
+            this.audioInfo = event.audioInfo;
+            console.log('[WebOSLuna] Audio info:', this.audioInfo);
+            this.emit('audioInfo', this.audioInfo);
+        }
+
+        // Load completed
+        if (event.loadCompleted) {
+            console.log('[WebOSLuna] Load completed');
+            this.emit('canplay', {});
+        }
+
+        // Playing
+        if (event.playing) {
+            this.isPaused = false;
+            this.emit('playing', {});
+        }
+
+        // Paused
+        if (event.paused) {
+            this.isPaused = true;
+            this.emit('pause', {});
+        }
+
+        // Seek done
+        if (event.seekDone) {
+            this.emit('seeked', {});
+        }
+
+        // End of stream
+        if (event.endOfStream) {
+            console.log('[WebOSLuna] End of stream');
+            this.emit('ended', {});
+        }
+
+        // Error
+        if (event.error) {
+            console.error('[WebOSLuna] Media error:', event.error);
+            this.emit('error', event.error);
         }
     }
 
     async load(url, options = {}) {
         if (!this.initialized) {
-            throw new Error('webOS Video API not initialized');
+            throw new Error('WebOS Luna adapter not initialized');
         }
 
         try {
-            this.currentUrl = url;
+            // Unload any existing media first
+            if (this.mediaId) {
+                await this.unloadMedia();
+            }
 
-            // Create media object for hardware-accelerated playback
-            const mediaOption = {
-                mediaTransportType: options.mimeType && options.mimeType.includes('application/x-mpegURL') 
-                    ? 'HLS' 
-                    : 'BUFFERSTREAM'
+            this.currentUrl = url;
+            console.log('[WebOSLuna] Loading media:', url);
+
+            // For webOS web apps, we use a simpler load approach
+            // The Luna service handles the video pipeline automatically
+            const loadParams = {
+                uri: url,
+                type: 'media',
+                payload: {
+                    option: {
+                        appId: this.appId,
+                        // For web apps, use fullscreen pipeline mode
+                        transmission: {
+                            playTime: {
+                                start: 0
+                            }
+                        }
+                    },
+                    // Request media info for metadata
+                    mediaTransportType: 'URI'
+                }
             };
 
-            // Unload previous media if exists
-            if (this.mediaObject) {
-                try {
-                    this.mediaObject.unload();
-                } catch (e) {
-                    // Ignore unload errors, will create new media object
-                }
+            console.log('[WebOSLuna] Load params:', JSON.stringify(loadParams));
+
+            // Load the media using Luna service
+            const loadResponse = await this.lunaRequest('luna://com.webos.media', 'load', loadParams);
+
+            if (!loadResponse.mediaId) {
+                throw new Error('No mediaId returned from load');
             }
 
-            // Load media using webOS native API
-            this.mediaObject = webOS.media.createMediaObject(
-                '/dev/video0',
-                mediaOption,
-                (event) => this.handleMediaEvent(event)
-            );
+            this.mediaId = loadResponse.mediaId;
+            console.log('[WebOSLuna] Media loaded with ID:', this.mediaId);
 
-            // Set source
-            this.videoElement.src = url;
-            
-            // Set start position if provided
-            if (options.startPosition) {
-                this.videoElement.currentTime = options.startPosition;
-            }
+            // Subscribe to media events for state updates
+            this.subscribeToMediaEvents();
 
-            this.emit('loaded', { url });
+            this.emit('loaded', { url, mediaId: this.mediaId });
 
-            // Wait for video to be ready
-            return new Promise((resolve, reject) => {
-                const onCanPlay = () => {
-                    this.videoElement.removeEventListener('canplay', onCanPlay);
-                    this.videoElement.removeEventListener('error', onError);
-                    resolve();
-                };
-                
-                const onError = (e) => {
-                    this.videoElement.removeEventListener('canplay', onCanPlay);
-                    this.videoElement.removeEventListener('error', onError);
-                    reject(e);
-                };
-
-                this.videoElement.addEventListener('canplay', onCanPlay);
-                this.videoElement.addEventListener('error', onError);
+            // Start playback immediately after load
+            // Don't wait for events - the subscription may not work reliably in web apps
+            console.log('[WebOSLuna] Starting playback immediately after load');
+            await this.lunaRequest('luna://com.webos.media', 'play', {
+                mediaId: this.mediaId
             });
+            this.isPaused = false;
+
+            // Signal that we can play (Luna has accepted the media)
+            this.emit('canplay', {});
+            this.emit('playing', {});
+
+            // Seek to start position if provided
+            if (options.startPosition && options.startPosition > 0) {
+                await this.seek(options.startPosition);
+            }
 
         } catch (error) {
+            console.error('[WebOSLuna] Load error:', error);
             this.emit('error', error);
             throw error;
         }
     }
 
-    handleMediaEvent(event) {
-        
-        if (event.type === 'error') {
-            this.emit('error', event);
-        } else if (event.type === 'buffering') {
-            this.emit('buffering', event.buffering);
+    async play() {
+        if (!this.mediaId) {
+            console.warn('[WebOSLuna] Cannot play - no media loaded');
+            return;
+        }
+
+        try {
+            await this.lunaRequest('luna://com.webos.media', 'play', {
+                mediaId: this.mediaId
+            });
+            this.isPaused = false;
+        } catch (error) {
+            console.error('[WebOSLuna] Play error:', error);
+            throw error;
+        }
+    }
+
+    async pause() {
+        if (!this.mediaId) {
+            console.warn('[WebOSLuna] Cannot pause - no media loaded');
+            return;
+        }
+
+        try {
+            await this.lunaRequest('luna://com.webos.media', 'pause', {
+                mediaId: this.mediaId
+            });
+            this.isPaused = true;
+        } catch (error) {
+            console.error('[WebOSLuna] Pause error:', error);
+            throw error;
+        }
+    }
+
+    async seek(time) {
+        if (!this.mediaId) {
+            console.warn('[WebOSLuna] Cannot seek - no media loaded');
+            return;
+        }
+
+        try {
+            // Luna service expects position in milliseconds
+            const positionMs = Math.floor(time * 1000);
+            console.log('[WebOSLuna] Seeking to:', time, 'seconds (', positionMs, 'ms)');
+            
+            await this.lunaRequest('luna://com.webos.media', 'seek', {
+                mediaId: this.mediaId,
+                position: positionMs
+            });
+            
+            this.currentTime = time;
+        } catch (error) {
+            console.error('[WebOSLuna] Seek error:', error);
+            throw error;
+        }
+    }
+
+    getCurrentTime() {
+        return this.currentTime;
+    }
+
+    getDuration() {
+        return this.duration;
+    }
+
+    async setVolume(volume) {
+        if (!this.mediaId) return;
+
+        try {
+            // Luna service expects volume 0-100
+            const volumePercent = Math.floor(volume * 100);
+            await this.lunaRequest('luna://com.webos.media', 'setVolume', {
+                mediaId: this.mediaId,
+                volume: volumePercent
+            });
+        } catch (error) {
+            console.error('[WebOSLuna] setVolume error:', error);
+        }
+    }
+
+    getVolume() {
+        // Volume is managed at system level on webOS
+        return 1.0;
+    }
+
+    isPaused() {
+        return this.isPaused;
+    }
+
+    /**
+     * Remove event handler
+     */
+    off(event, handler) {
+        if (this.eventHandlers[event]) {
+            const index = this.eventHandlers[event].indexOf(handler);
+            if (index > -1) {
+                this.eventHandlers[event].splice(index, 1);
+            }
         }
     }
 
     selectAudioTrack(trackId) {
-        try {
-            const audioTracks = this.videoElement.audioTracks;
-            if (audioTracks && trackId >= 0 && trackId < audioTracks.length) {
-                for (let i = 0; i < audioTracks.length; i++) {
-                    audioTracks[i].enabled = (i === trackId);
-                }
-                return true;
-            }
-            return false;
-        } catch (error) {
-            return false;
-        }
+        // Audio track selection via Luna service would require selectTrack method
+        // For now, return false as this is handled by server-side transcoding
+        console.log('[WebOSLuna] Audio track selection not yet implemented:', trackId);
+        return false;
     }
 
     selectSubtitleTrack(trackId) {
-        try {
-            const textTracks = this.videoElement.textTracks;
-            
-            if (trackId === -1) {
-                for (let i = 0; i < textTracks.length; i++) {
-                    textTracks[i].mode = 'disabled';
-                }
-                return true;
-            }
-
-            if (textTracks && trackId >= 0 && trackId < textTracks.length) {
-                for (let i = 0; i < textTracks.length; i++) {
-                    textTracks[i].mode = (i === trackId) ? 'showing' : 'disabled';
-                }
-                return true;
-            }
-            return false;
-        } catch (error) {
-            return false;
-        }
+        // Subtitle track selection via Luna service
+        // For now, return false as this is handled by server-side transcoding
+        console.log('[WebOSLuna] Subtitle track selection not yet implemented:', trackId);
+        return false;
     }
 
     getAudioTracks() {
-        const audioTracks = this.videoElement.audioTracks;
-        if (!audioTracks) return [];
-
-        const tracks = [];
-        for (let i = 0; i < audioTracks.length; i++) {
-            const track = audioTracks[i];
-            tracks.push({
-                id: i,
-                language: track.language,
-                label: track.label || track.language,
-                enabled: track.enabled
-            });
+        // Return tracks from sourceInfo if available
+        if (this.sourceInfo && this.sourceInfo.audio_streams) {
+            return this.sourceInfo.audio_streams.map((stream, index) => ({
+                id: index,
+                language: stream.language || 'unknown',
+                label: stream.label || `Audio ${index + 1}`,
+                codec: stream.codec,
+                sampleRate: stream.sample_rate
+            }));
         }
-        return tracks;
+        return [];
     }
 
     getSubtitleTracks() {
-        const textTracks = this.videoElement.textTracks;
-        if (!textTracks) return [];
+        // Subtitles are typically handled via separate subtitle files on webOS
+        return [];
+    }
 
-        const tracks = [];
-        for (let i = 0; i < textTracks.length; i++) {
-            const track = textTracks[i];
-            if (track.kind === 'subtitles' || track.kind === 'captions') {
-                tracks.push({
-                    id: i,
-                    language: track.language,
-                    label: track.label || track.language,
-                    kind: track.kind
-                });
+    /**
+     * Unload current media
+     */
+    async unloadMedia() {
+        if (!this.mediaId) return;
+
+        try {
+            // Cancel subscription first
+            if (this.subscriptionActive) {
+                if (this.subscriptionService && this.subscriptionService.cancel) {
+                    this.subscriptionService.cancel();
+                }
+                if (this.subscriptionBridge) {
+                    this.subscriptionBridge.cancel();
+                    this.subscriptionBridge = null;
+                }
+                this.subscriptionActive = false;
             }
+
+            // Unload media
+            await this.lunaRequest('luna://com.webos.media', 'unload', {
+                mediaId: this.mediaId
+            });
+
+            console.log('[WebOSLuna] Media unloaded:', this.mediaId);
+        } catch (error) {
+            console.error('[WebOSLuna] Unload error:', error);
+        } finally {
+            this.mediaId = null;
         }
-        return tracks;
     }
 
     async destroy() {
-        if (this.mediaObject) {
-            try {
-                this.mediaObject.unload();
-            } catch (e) {
-                // Ignore unload errors during cleanup
-            }
-            this.mediaObject = null;
-        }
+        await this.unloadMedia();
         this.currentUrl = null;
+        this.duration = 0;
+        this.currentTime = 0;
+        this.sourceInfo = null;
+        this.videoInfo = null;
+        this.audioInfo = null;
         this.initialized = false;
         await super.destroy();
     }
 
     getName() {
-        return 'WebOSNative';
+        return 'WebOSLuna';
+    }
+
+    /**
+     * Get playback statistics
+     */
+    getStats() {
+        const stats = {
+            categories: []
+        };
+
+        const videoCategory = {
+            type: 'video',
+            stats: []
+        };
+
+        // Video info from Luna service
+        if (this.videoInfo && this.videoInfo.video) {
+            const video = this.videoInfo.video;
+            videoCategory.stats.push({
+                label: 'Video Resolution',
+                value: `${video.width || 0}x${video.height || 0}`
+            });
+            if (video.codec) {
+                videoCategory.stats.push({
+                    label: 'Video Codec',
+                    value: video.codec
+                });
+            }
+            if (video.bitrate) {
+                videoCategory.stats.push({
+                    label: 'Video Bitrate',
+                    value: `${(video.bitrate / 1000000).toFixed(2)} Mbps`
+                });
+            }
+        }
+
+        // Container info
+        if (this.sourceInfo && this.sourceInfo.container) {
+            videoCategory.stats.push({
+                label: 'Container',
+                value: this.sourceInfo.container
+            });
+        }
+
+        // Audio info
+        if (this.audioInfo) {
+            const audioCategory = {
+                type: 'audio',
+                stats: []
+            };
+            if (this.audioInfo.codec) {
+                audioCategory.stats.push({
+                    label: 'Audio Codec',
+                    value: this.audioInfo.codec
+                });
+            }
+            if (this.audioInfo.sample_rate) {
+                audioCategory.stats.push({
+                    label: 'Sample Rate',
+                    value: `${this.audioInfo.sample_rate} Hz`
+                });
+            }
+            stats.categories.push(audioCategory);
+        }
+
+        videoCategory.stats.push({
+            label: 'Player',
+            value: 'WebOS Luna (Native)'
+        });
+
+        stats.categories.push(videoCategory);
+        return stats;
     }
 }
 
@@ -934,6 +1322,12 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                         console.log('[HTML5Adapter] Using HLS.js for HLS playback (DeviceProfile)');
                         return this.loadWithHlsJs(url, options);
                     }
+                    
+                    // DeviceProfile returned false for both - prefer HLS.js if available
+                    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                        console.log('[HTML5Adapter] Using HLS.js for HLS playback (DeviceProfile default)');
+                        return this.loadWithHlsJs(url, options);
+                    }
                 }
                 
                 // Fallback: Check for native HLS support first (Safari, iOS, some smart TVs)
@@ -943,13 +1337,13 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                                          videoTest.canPlayType('application/x-mpegURL');
                 
                 if (canPlayNativeHLS) {
-                    console.log('[HTML5Adapter] Using native HLS playback');
+                    console.log('[HTML5Adapter] Using native HLS playback (fallback)');
                     return this.loadNativeHLS(url, options);
                 }
                 
                 // Fall back to HLS.js if native not supported but MediaSource is
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    console.log('[HTML5Adapter] Using HLS.js for HLS playback');
+                    console.log('[HTML5Adapter] Using HLS.js for HLS playback (fallback)');
                     return this.loadWithHlsJs(url, options);
                 }
                 
@@ -969,9 +1363,25 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
 
     /**
      * Load video directly without HLS.js
+     * Used for DirectPlay of MP4, MKV, and other container formats
+     * On webOS, MKV files are routed to native decoder even though canPlayType returns empty
      * @private
      */
     loadDirect(url, options = {}) {
+        console.log('[HTML5Adapter] ========== loadDirect called ==========');
+        console.log('[HTML5Adapter] URL:', url.substring(0, 120) + '...');
+        console.log('[HTML5Adapter] MimeType:', options.mimeType || 'not specified');
+        console.log('[HTML5Adapter] StartPosition:', options.startPosition || 0);
+        
+        // Detect container type from URL
+        const isMKV = url.toLowerCase().includes('.mkv') || url.toLowerCase().includes('container=mkv');
+        const isMP4 = url.toLowerCase().includes('.mp4') || url.toLowerCase().includes('container=mp4');
+        
+        if (isMKV) {
+            console.log('[HTML5Adapter] MKV container detected - relying on webOS native decoder');
+            console.log('[HTML5Adapter] Note: canPlayType() may return empty but native pipeline supports MKV');
+        }
+        
         // Clear existing sources
         this.videoElement.innerHTML = '';
         
@@ -981,15 +1391,22 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
             this.videoElement.crossOrigin = crossOrigin;
         }
         
-        // Create source element
-        const source = document.createElement('source');
-        source.src = url;
-        
-        if (options.mimeType) {
-            source.type = options.mimeType;
+        // For MKV, don't set type attribute - let browser detect format from content
+        // Chrome 53 doesn't recognize video/x-matroska MIME type, but can play MKV via native decoder
+        if (isMKV && options.mimeType) {
+            console.log('[HTML5Adapter] MKV file - skipping MIME type "' + options.mimeType + '" (browser will auto-detect)');
+            options.mimeType = null;
         }
         
-        this.videoElement.appendChild(source);
+        // Set src directly (more reliable than <source> element on some browsers)
+        // Per jellyfin-web htmlMediaHelper.js applySrc()
+        this.videoElement.src = url;
+        
+        // Log whether the video element thinks it can play this type
+        if (options.mimeType) {
+            const canPlayResult = this.videoElement.canPlayType(options.mimeType);
+            console.log('[HTML5Adapter] canPlayType("' + options.mimeType + '"): "' + canPlayResult + '"');
+        }
 
         // Set start position if provided
         if (options.startPosition) {
@@ -1001,18 +1418,32 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
         // Wait for video to be ready
         return new Promise((resolve, reject) => {
             const onCanPlay = () => {
+                console.log('[HTML5Adapter] loadDirect: canplay event fired');
+                console.log('[HTML5Adapter] Video dimensions:', this.videoElement.videoWidth + 'x' + this.videoElement.videoHeight);
                 this.videoElement.removeEventListener('canplay', onCanPlay);
+                this.videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
                 this.videoElement.removeEventListener('error', onError);
                 resolve();
             };
             
+            const onLoadedMetadata = () => {
+                console.log('[HTML5Adapter] loadDirect: loadedmetadata event fired');
+                console.log('[HTML5Adapter] Video duration:', this.videoElement.duration);
+                console.log('[HTML5Adapter] Video dimensions:', this.videoElement.videoWidth + 'x' + this.videoElement.videoHeight);
+            };
+            
             const onError = (e) => {
+                console.error('[HTML5Adapter] loadDirect: error event fired');
+                console.error('[HTML5Adapter] Error code:', this.videoElement.error?.code);
+                console.error('[HTML5Adapter] Error message:', this.videoElement.error?.message);
                 this.videoElement.removeEventListener('canplay', onCanPlay);
+                this.videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
                 this.videoElement.removeEventListener('error', onError);
                 reject(e);
             };
 
             this.videoElement.addEventListener('canplay', onCanPlay);
+            this.videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
             this.videoElement.addEventListener('error', onError);
         });
     }
@@ -1024,6 +1455,28 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
      */
     loadNativeHLS(url, options = {}) {
         var self = this;
+        
+        console.log('[HTML5Adapter] ========== loadNativeHLS called ==========');
+        console.log('[HTML5Adapter] Full URL:', url);
+        
+        // Parse URL to extract key parameters
+        try {
+            var urlObj = new URL(url);
+            var params = new URLSearchParams(urlObj.search);
+            console.log('[HTML5Adapter] Server:', urlObj.origin);
+            console.log('[HTML5Adapter] Path:', urlObj.pathname);
+            console.log('[HTML5Adapter] Key parameters:');
+            console.log('[HTML5Adapter]   - VideoCodec:', params.get('VideoCodec') || 'not specified');
+            console.log('[HTML5Adapter]   - AudioCodec:', params.get('AudioCodec') || 'not specified');
+            console.log('[HTML5Adapter]   - Container:', params.get('Container') || 'not specified');
+            console.log('[HTML5Adapter]   - TranscodingMaxAudioChannels:', params.get('TranscodingMaxAudioChannels') || 'not specified');
+            console.log('[HTML5Adapter]   - MediaSourceId:', params.get('MediaSourceId') || 'not specified');
+        } catch (e) {
+            console.error('[HTML5Adapter] Error parsing URL:', e);
+        }
+        
+        console.log('[HTML5Adapter] MediaSource info:', options.mediaSource);
+        console.log('[HTML5Adapter] ==========================================');
         
         return new Promise(function(resolve, reject) {
             // Clear existing sources
@@ -1051,6 +1504,9 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                 self.videoElement.removeEventListener('canplay', onCanPlay);
                 self.videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
                 self.videoElement.removeEventListener('error', onError);
+                self.videoElement.removeEventListener('stalled', onStalled);
+                self.videoElement.removeEventListener('waiting', onWaiting);
+                self.videoElement.removeEventListener('loadstart', onLoadStart);
             };
             
             var onCanPlay = function() {
@@ -1070,6 +1526,48 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
             
             var onLoadedMetadata = function() {
                 console.log('[HTML5Adapter] Native HLS metadata loaded');
+                console.log('[HTML5Adapter] Video dimensions:', self.videoElement.videoWidth, 'x', self.videoElement.videoHeight);
+                console.log('[HTML5Adapter] Video duration:', self.videoElement.duration);
+                console.log('[HTML5Adapter] Video readyState:', self.videoElement.readyState);
+                console.log('[HTML5Adapter] Video networkState:', self.videoElement.networkState);
+                
+                if (self.videoElement.videoWidth === 0 || self.videoElement.videoHeight === 0) {
+                    console.error('[HTML5Adapter] VIDEO DIMENSIONS ARE 0x0 - PLAYBACK WILL FAIL');
+                    console.error('[HTML5Adapter] This indicates the native HLS player cannot decode the video codec');
+                    console.error('[HTML5Adapter] Fetching HLS manifest to diagnose...');
+                    
+                    fetch(url).then(function(response) {
+                        return response.text();
+                    }).then(function(manifestText) {
+                        console.error('[HTML5Adapter] HLS Master Manifest:', manifestText.substring(0, 500));
+                        
+                        // Parse and log the variant playlist URL
+                        var lines = manifestText.split('\n');
+                        for (var i = 0; i < lines.length; i++) {
+                            if (lines[i] && !lines[i].startsWith('#')) {
+                                var variantUrl = lines[i].trim();
+                                // Make it absolute
+                                if (!variantUrl.startsWith('http')) {
+                                    var baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+                                    variantUrl = baseUrl + variantUrl;
+                                }
+                                console.error('[HTML5Adapter] Variant playlist URL:', variantUrl);
+                                
+                                // Fetch variant playlist to see codec info
+                                fetch(variantUrl).then(function(resp) {
+                                    return resp.text();
+                                }).then(function(variantText) {
+                                    console.error('[HTML5Adapter] Variant Playlist (first 800 chars):', variantText.substring(0, 800));
+                                }).catch(function(e) {
+                                    console.error('[HTML5Adapter] Failed to fetch variant playlist:', e);
+                                });
+                                break;
+                            }
+                        }
+                    }).catch(function(err) {
+                        console.error('[HTML5Adapter] Failed to fetch manifest:', err);
+                    });
+                }
             };
             
             var onError = function(e) {
@@ -1077,13 +1575,33 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
                 resolved = true;
                 cleanup();
                 var error = self.videoElement.error;
-                console.error('[HTML5Adapter] Native HLS error:', error ? error.message : 'Unknown error');
-                reject(new Error('Native HLS playback failed: ' + (error ? error.message : 'Unknown')));
+                var errorDetails = error ? 
+                    'code=' + error.code + ' message=' + (error.message || 'none') : 
+                    'Unknown error';
+                console.error('[HTML5Adapter] Native HLS error:', errorDetails);
+                console.error('[HTML5Adapter] Video networkState:', self.videoElement.networkState);
+                console.error('[HTML5Adapter] Video readyState:', self.videoElement.readyState);
+                reject(new Error('Native HLS playback failed: ' + errorDetails));
+            };
+            
+            var onStalled = function() {
+                console.warn('[HTML5Adapter] Native HLS stalled');
+            };
+            
+            var onWaiting = function() {
+                console.log('[HTML5Adapter] Native HLS waiting for data');
+            };
+            
+            var onLoadStart = function() {
+                console.log('[HTML5Adapter] Native HLS load started');
             };
             
             self.videoElement.addEventListener('canplay', onCanPlay);
             self.videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
             self.videoElement.addEventListener('error', onError);
+            self.videoElement.addEventListener('stalled', onStalled);
+            self.videoElement.addEventListener('waiting', onWaiting);
+            self.videoElement.addEventListener('loadstart', onLoadStart);
             
             // Timeout after 30 seconds
             timeoutId = setTimeout(function() {
@@ -1203,7 +1721,10 @@ class HTML5VideoAdapter extends VideoPlayerAdapter {
 
             hls.on(Hls.Events.FRAG_BUFFERED, function(event, data) {
                 if (data.stats) {
-                    console.log('[HTML5+HLS.js] Fragment buffered - processing:', data.stats.buffering + 'ms');
+                    var bufferingTime = typeof data.stats.buffering === 'object' 
+                        ? JSON.stringify(data.stats.buffering) 
+                        : data.stats.buffering;
+                    console.log('[HTML5+HLS.js] Fragment buffered - processing:', bufferingTime + 'ms');
                 }
             });
 
@@ -1401,7 +1922,7 @@ class VideoPlayerFactory {
      * Create a video player adapter with automatic capability detection
      * @param {HTMLVideoElement} videoElement - Video element to use
      * @param {Object} options - Creation options
-     * @param {boolean} options.preferWebOS - Prefer WebOS native adapter for HDR/Dolby Vision
+     * @param {boolean} options.preferWebOS - Prefer WebOS native adapter for DirectPlay (MKV, HEVC, etc.)
      * @param {boolean} options.preferHTML5 - Prefer HTML5 video element for direct files
      * @param {boolean} options.preferHLS - Prefer HTML5+HLS.js for transcoded HLS streams (matches jellyfin-web)
      * @returns {Promise<VideoPlayerAdapter>} Initialized player adapter
@@ -1410,32 +1931,31 @@ class VideoPlayerFactory {
         // Determine adapter priority based on playback needs
         var adapters = [
             ShakaPlayerAdapter,
-            WebOSVideoAdapter,
             HTML5VideoAdapter
         ];
 
         if (options.preferWebOS) {
-            // For Dolby Vision: WebOS native > Shaka > HTML5
+            // For DirectPlay on webOS: Use native Luna service for MKV/HEVC/etc.
+            // WebOSVideoAdapter uses luna://com.webos.media which supports all native codecs
+            console.log('[PlayerFactory] preferWebOS mode - using WebOS Luna service for DirectPlay');
             adapters = [
                 WebOSVideoAdapter,
-                ShakaPlayerAdapter,
-                HTML5VideoAdapter
+                HTML5VideoAdapter,
+                ShakaPlayerAdapter
             ];
         } else if (options.preferHLS) {
-            // For transcoded HLS streams: HTML5+HLS.js > Shaka > WebOS
+            // For transcoded HLS streams: HTML5+HLS.js > Shaka
             // This matches jellyfin-web behavior for better compatibility
             console.log('[PlayerFactory] preferHLS mode - using HTML5+HLS.js for transcoded stream');
             adapters = [
                 HTML5VideoAdapter,
-                ShakaPlayerAdapter,
-                WebOSVideoAdapter
+                ShakaPlayerAdapter
             ];
         } else if (options.preferHTML5) {
-            // For direct files: HTML5 > Shaka > WebOS
+            // For direct files: HTML5 > Shaka
             adapters = [
                 HTML5VideoAdapter,
-                ShakaPlayerAdapter,
-                WebOSVideoAdapter
+                ShakaPlayerAdapter
             ];
         }
 

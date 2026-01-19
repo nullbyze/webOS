@@ -5,10 +5,8 @@
   "type": "module",
   "scripts": {
     "check": "ares-package --check",
-    "package": "ares-package --no-minify --outdir build/ services frontend",
     "build": "gulp",
-    "build:es5": "gulp buildES5",
-    "package:es5": "gulp buildES5 && ares-package --no-minify --outdir build/ services frontend-build",
+    "package": "npm run build && ares-package --no-minify --outdir build/ services frontend-build",
     "clean": "rm -rf build/ frontend-build/",
     "clean:all": "rm -rf build/ frontend-build/ node_modules/",
     "deploy": "ares-install build/org.moonfin.webos_${npm_package_version}_all.ipk",
