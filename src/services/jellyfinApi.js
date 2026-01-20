@@ -176,5 +176,11 @@ export const api = {
 		request(`/LiveTv/Recordings?UserId=${currentUser}`),
 
 	getMediaStreams: (itemId) =>
-		request(`/Items/${itemId}?Fields=MediaStreams`)
+		request(`/Items/${itemId}?Fields=MediaStreams`),
+
+	getNextEpisode: (seriesId, currentEpisodeId) =>
+		request(`/Shows/NextUp?UserId=${currentUser}&SeriesId=${seriesId}&StartItemId=${currentEpisodeId}&Limit=1`),
+
+	getAdjacentEpisodes: (itemId) =>
+		request(`/Users/${currentUser}/Items/${itemId}?Fields=Overview,MediaStreams,Chapters`)
 };
