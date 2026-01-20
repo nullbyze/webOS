@@ -7,7 +7,7 @@ import MediaRow from '../../components/MediaRow';
 
 import css from './Browse.module.less';
 
-const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings}) => {
+const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings, onOpenFavorites, onOpenLiveTV}) => {
 	const {api, serverUrl, user} = useAuth();
 	const [rows, setRows] = useState([]);
 	const [libraries, setLibraries] = useState([]);
@@ -88,6 +88,8 @@ const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings}) =
 	return (
 		<Panel>
 			<Header title="Moonfin" subtitle={user?.Name || ''}>
+				<Button icon="heart" onClick={onOpenFavorites} />
+				<Button icon="liverecord" onClick={onOpenLiveTV} />
 				<Button icon="search" onClick={onOpenSearch} />
 				<Button icon="gear" onClick={onOpenSettings} />
 			</Header>

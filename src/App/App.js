@@ -11,6 +11,9 @@ import Library from '../views/Library';
 import Search from '../views/Search';
 import Settings from '../views/Settings';
 import Player from '../views/Player';
+import Favorites from '../views/Favorites';
+import Person from '../views/Person';
+import LiveTV from '../views/LiveTV';
 
 import css from './App.module.less';
 
@@ -21,7 +24,10 @@ const PANELS = {
 	LIBRARY: 3,
 	SEARCH: 4,
 	SETTINGS: 5,
-	PLAYER: 6
+	PLAYER: 6,
+	FAVORITES: 7,
+	PERSON: 8,
+	LIVETV: 9
 };
 
 const AppContent = (props) => {
@@ -29,6 +35,7 @@ const AppContent = (props) => {
 	const [panelIndex, setPanelIndex] = useState(isAuthenticated ? PANELS.BROWSE : PANELS.LOGIN);
 	const [selectedItem, setSelectedItem] = useState(null);
 	const [selectedLibrary, setSelectedLibrary] = useState(null);
+	const [selectedPerson, setSelectedPerson] = useState(null);
 	const [playingItem, setPlayingItem] = useState(null);
 	const [panelHistory, setPanelHistory] = useState([]);
 
@@ -86,6 +93,24 @@ const AppContent = (props) => {
 		navigateTo(PANELS.SETTINGS);
 	}, [navigateTo]);
 
+	const handleOpenFavorites = useCallback(() => {
+		navigateTo(PANELS.FAVORITES);
+	}, [navigateTo]);
+
+	const handleSelectPerson = useCallback((person) => {
+		setSelectedPerson(person);
+		navigateTo(PANELS.PERSON);
+	}, [navigateTo]);
+
+	const handleOpenLiveTV = useCallback(() => {
+		navigateTo(PANELS.LIVETV);
+	}, [navigateTo]);
+
+	const handlePlayChannel = useCallback((channel) => {
+		setPlayingItem(channel);
+		navigateTo(PANELS.PLAYER);
+	}, [navigateTo]);
+
 	if (isLoading) {
 		return <div className={css.loading}>Loading...</div>;
 	}
@@ -103,11 +128,14 @@ const AppContent = (props) => {
 					onSelectLibrary={handleSelectLibrary}
 					onOpenSearch={handleOpenSearch}
 					onOpenSettings={handleOpenSettings}
+					onOpenFavorites={handleOpenFavorites}
+					onOpenLiveTV={handleOpenLiveTV}
 				/>
 				<Details
 					itemId={selectedItem?.Id}
 					onPlay={handlePlay}
 					onSelectItem={handleSelectItem}
+					onSelectPerson={handleSelectPerson}
 				/>
 				<Library
 					library={selectedLibrary}
@@ -123,6 +151,9 @@ const AppContent = (props) => {
 						onPlayNext={handlePlayNext}
 					/>
 				)}
+				<Favorites onSelectItem={handleSelectItem} />
+				<Person personId={selectedPerson?.Id} onSelectItem={handleSelectItem} />
+				<LiveTV onPlayChannel={handlePlayChannel} />
 			</Panels>
 		</div>
 	);
