@@ -3,6 +3,7 @@ import ThemeDecorator from '@enact/sandstone/ThemeDecorator';
 import Panels from '@enact/sandstone/Panels';
 
 import {AuthProvider} from '../context/AuthContext';
+import {SettingsProvider} from '../context/SettingsContext';
 import Login from '../views/Login';
 import Browse from '../views/Browse';
 
@@ -28,14 +29,16 @@ const AppBase = (props) => {
 	}, []);
 
 	return (
-		<AuthProvider>
-			<div className={css.app} {...props}>
-				<Panels index={panelIndex} onBack={handleBack} noCloseButton>
-					<Login onLoggedIn={handleLoggedIn} />
-					<Browse onSelectItem={handleSelectItem} />
-				</Panels>
-			</div>
-		</AuthProvider>
+		<SettingsProvider>
+			<AuthProvider>
+				<div className={css.app} {...props}>
+					<Panels index={panelIndex} onBack={handleBack} noCloseButton>
+						<Login onLoggedIn={handleLoggedIn} />
+						<Browse onSelectItem={handleSelectItem} />
+					</Panels>
+				</div>
+			</AuthProvider>
+		</SettingsProvider>
 	);
 };
 

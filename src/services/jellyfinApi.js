@@ -123,5 +123,58 @@ export const api = {
 	}),
 
 	search: (query, limit = 24) =>
-		request(`/Users/${currentUser}/Items?searchTerm=${encodeURIComponent(query)}&Limit=${limit}&Recursive=true`)
+		request(`/Users/${currentUser}/Items?searchTerm=${encodeURIComponent(query)}&Limit=${limit}&Recursive=true&IncludeItemTypes=Movie,Series,Episode&Fields=PrimaryImageAspectRatio,ProductionYear`),
+
+	getSeasons: (seriesId) =>
+		request(`/Shows/${seriesId}/Seasons?UserId=${currentUser}&Fields=PrimaryImageAspectRatio`),
+
+	getEpisodes: (seriesId, seasonId) =>
+		request(`/Shows/${seriesId}/Episodes?UserId=${currentUser}&SeasonId=${seasonId}&Fields=PrimaryImageAspectRatio,Overview`),
+
+	getSimilar: (itemId, limit = 12) =>
+		request(`/Items/${itemId}/Similar?UserId=${currentUser}&Limit=${limit}&Fields=PrimaryImageAspectRatio,ProductionYear`),
+
+	getGenres: (libraryId) =>
+		request(`/Genres?UserId=${currentUser}&ParentId=${libraryId}&SortBy=SortName`),
+
+	getItemsByGenre: (genreId, libraryId, limit = 50) =>
+		request(`/Users/${currentUser}/Items?GenreIds=${genreId}&ParentId=${libraryId}&Limit=${limit}&Recursive=true&IncludeItemTypes=Movie,Series&Fields=PrimaryImageAspectRatio,ProductionYear`),
+
+	getPerson: (personId) =>
+		request(`/Users/${currentUser}/Items/${personId}`),
+
+	getItemsByPerson: (personId, limit = 50) =>
+		request(`/Users/${currentUser}/Items?PersonIds=${personId}&Recursive=true&IncludeItemTypes=Movie,Series&Limit=${limit}&Fields=PrimaryImageAspectRatio,ProductionYear`),
+
+	getFavorites: (limit = 50) =>
+		request(`/Users/${currentUser}/Items?IsFavorite=true&Recursive=true&Limit=${limit}&Fields=PrimaryImageAspectRatio,ProductionYear`),
+
+	setFavorite: (itemId, isFavorite) => request(`/Users/${currentUser}/FavoriteItems/${itemId}`, {
+		method: isFavorite ? 'POST' : 'DELETE'
+	}),
+
+	setWatched: (itemId, watched) => request(`/Users/${currentUser}/PlayedItems/${itemId}`, {
+		method: watched ? 'POST' : 'DELETE'
+	}),
+
+	getIntros: (itemId) =>
+		request(`/Users/${currentUser}/Items/${itemId}/Intros`),
+
+	getAdditionalParts: (itemId) =>
+		request(`/Videos/${itemId}/AdditionalParts?UserId=${currentUser}`),
+
+	getSpecialFeatures: (itemId) =>
+		request(`/Users/${currentUser}/Items/${itemId}/SpecialFeatures`),
+
+	getLiveTvChannels: () =>
+		request(`/LiveTv/Channels?UserId=${currentUser}&EnableFavoriteSorting=true`),
+
+	getLiveTvPrograms: (channelId) =>
+		request(`/LiveTv/Programs?UserId=${currentUser}&ChannelIds=${channelId}&EnableTotalRecordCount=false`),
+
+	getLiveTvRecordings: () =>
+		request(`/LiveTv/Recordings?UserId=${currentUser}`),
+
+	getMediaStreams: (itemId) =>
+		request(`/Items/${itemId}?Fields=MediaStreams`)
 };
