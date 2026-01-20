@@ -15,7 +15,6 @@ const SpottableCard = Spottable('div');
 
 const JellyseerrDiscover = ({onSelectItem, onOpenRequests}) => {
 	const {isAuthenticated} = useJellyseerr();
-	const [activeTab, setActiveTab] = useState(0);
 	const [movies, setMovies] = useState([]);
 	const [tvShows, setTvShows] = useState([]);
 	const [trending, setTrending] = useState([]);
@@ -114,7 +113,7 @@ const JellyseerrDiscover = ({onSelectItem, onOpenRequests}) => {
 			<Header title="Jellyseerr" subtitle="Request Movies & TV Shows">
 				<Button icon="list" onClick={onOpenRequests}>My Requests</Button>
 			</Header>
-			<TabLayout onSelect={(e) => setActiveTab(e.index)}>
+			<TabLayout>
 				<Tab title="Trending">
 					<VirtualGridList
 						className={css.grid}

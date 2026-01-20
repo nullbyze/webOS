@@ -15,7 +15,7 @@
 		"license": "enact license",
 		"test": "enact test",
 		"test-watch": "enact test --watch",
-		"package": "enact pack -p && ares-package ./dist -o ./build",
+		"package": "enact pack -p && ares-package ./dist ./services -o ./build",
 		"install-tv": "ares-install ./build/*.ipk -d tv",
 		"launch-tv": "ares-launch org.moonfin.webos -d tv"
 	},
@@ -41,9 +41,6 @@
 				"height": 2160
 			}
 		]
-	},
-	"eslintConfig": {
-		"extends": "enact-proxy"
 	},
 	"eslintIgnore": [
 		"node_modules/*",

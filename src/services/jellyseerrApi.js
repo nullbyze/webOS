@@ -185,3 +185,28 @@ export const proxyImage = async (imageUrl) => {
 	}
 	return null;
 };
+
+export default {
+	setConfig,
+	getConfig,
+	testConnection,
+	login,
+	loginWithJellyfin,
+	logout,
+	getUser,
+	discover,
+	discoverTv,
+	trending,
+	search,
+	getMovie,
+	getTv,
+	getPerson,
+	getMediaStatus,
+	getRequests,
+	requestMovie,
+	requestTv,
+	cancelRequest,
+	getImageUrl,
+	proxyImage,
+	clearCookies
+};

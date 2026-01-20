@@ -25,7 +25,7 @@ export const getAuthHeader = () => {
 
 export const initDeviceId = async () => {
 	try {
-		const {getFromStorage, saveToStorage} = await import('./storage');
+		const {getFromStorage} = await import('./storage');
 		const stored = await getFromStorage('_deviceId');
 		if (stored) {
 			deviceId = stored;
@@ -35,7 +35,7 @@ export const initDeviceId = async () => {
 		// Storage not available
 	}
 
-	deviceId = btoa([navigator.userAgent, Date.now()].join('|')).replace(/=/g, '1');
+	deviceId = btoa([navigator.userAgent, Date.now()].join('|')).replace(/[=]/g, '1');
 
 	try {
 		const {saveToStorage} = await import('./storage');

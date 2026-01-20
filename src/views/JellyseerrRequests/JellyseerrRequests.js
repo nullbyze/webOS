@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {Row, Cell, Column} from '@enact/ui/Layout';
+import {Row, Column} from '@enact/ui/Layout';
 import {Panel, Header} from '@enact/sandstone/Panels';
 import Spinner from '@enact/sandstone/Spinner';
 import BodyText from '@enact/sandstone/BodyText';

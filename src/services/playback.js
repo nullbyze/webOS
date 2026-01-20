@@ -49,13 +49,13 @@ export const getPlaybackUrl = async (itemId, startPositionTicks = 0, options = {
 		mediaSourceId: mediaSource.Id,
 		mediaSource,
 		runTimeTicks: mediaSource.RunTimeTicks,
-		audioStreams: extractAudioStreams(mediaSource),
-		subtitleStreams: extractSubtitleStreams(mediaSource),
+		audioStreams: extractAudioStreamsInternal(mediaSource),
+		subtitleStreams: extractSubtitleStreamsInternal(mediaSource),
 		chapters: mediaSource.Chapters || []
 	};
 };
 
-const extractAudioStreams = (mediaSource) => {
+const extractAudioStreamsInternal = (mediaSource) => {
 	if (!mediaSource.MediaStreams) return [];
 	return mediaSource.MediaStreams
 		.filter(s => s.Type === 'Audio')
@@ -69,7 +69,7 @@ const extractAudioStreams = (mediaSource) => {
 		}));
 };
 
-const extractSubtitleStreams = (mediaSource) => {
+const extractSubtitleStreamsInternal = (mediaSource) => {
 	if (!mediaSource.MediaStreams) return [];
 	return mediaSource.MediaStreams
 		.filter(s => s.Type === 'Subtitle')
@@ -154,6 +154,13 @@ export const reportProgress = async (positionTicks, isPaused = false) => {
 	});
 };
 
+export const stopProgressReporting = () => {
+	if (progressInterval) {
+		clearInterval(progressInterval);
+		progressInterval = null;
+	}
+};
+
 export const reportStop = async (positionTicks) => {
 	if (!currentPlaySession) return;
 
@@ -178,13 +185,6 @@ export const startProgressReporting = (getPositionTicks, intervalMs = 10000) => 
 			await reportProgress(ticks, false);
 		}
 	}, intervalMs);
-};
-
-export const stopProgressReporting = () => {
-	if (progressInterval) {
-		clearInterval(progressInterval);
-		progressInterval = null;
-	}
 };
 
 export const getCurrentSession = () => currentPlaySession;
