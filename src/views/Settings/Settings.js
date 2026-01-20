@@ -1,11 +1,14 @@
-import {useCallback} from 'react';
+import {useCallback, useState} from 'react';
 import {Panel, Header} from '@enact/sandstone/Panels';
 import Button from '@enact/sandstone/Button';
 import SwitchItem from '@enact/sandstone/SwitchItem';
 import Dropdown from '@enact/sandstone/Dropdown';
 import Scroller from '@enact/sandstone/Scroller';
+import Input from '@enact/sandstone/Input';
+import BodyText from '@enact/sandstone/BodyText';
 import {useAuth} from '../../context/AuthContext';
 import {useSettings} from '../../context/SettingsContext';
+import {useJellyseerr} from '../../context/JellyseerrContext';
 import {useDeviceInfo} from '../../hooks/useDeviceInfo';
 
 import css from './Settings.module.less';
@@ -32,6 +35,11 @@ const Settings = () => {
 	const {user, serverUrl, logout} = useAuth();
 	const {settings, updateSetting, resetSettings} = useSettings();
 	const {capabilities} = useDeviceInfo();
+	const jellyseerr = useJellyseerr();
+
+	const [jellyseerrUrl, setJellyseerrUrl] = useState(jellyseerr.serverUrl || '');
+	const [jellyseerrApiKey, setJellyseerrApiKey] = useState('');
+	const [jellyseerrStatus, setJellyseerrStatus] = useState('');
 
 	const handleLogout = useCallback(() => {
 		logout();
@@ -44,6 +52,32 @@ const Settings = () => {
 	const handleSubtitleModeChange = useCallback((e) => {
 		updateSetting('subtitleMode', SUBTITLE_MODES[e.selected].key);
 	}, [updateSetting]);
+
+	const handleJellyseerrSave = useCallback(async () => {
+		if (!jellyseerrUrl) {
+			setJellyseerrStatus('Please enter a URL');
+			return;
+		}
+		setJellyseerrStatus('Connecting...');
+		try {
+			await jellyseerr.configure(jellyseerrUrl, jellyseerrApiKey || null);
+			if (jellyseerr.isAuthenticated) {
+				setJellyseerrStatus('Connected');
+			} else {
+				await jellyseerr.loginWithJellyfin();
+				setJellyseerrStatus(jellyseerr.isAuthenticated ? 'Connected' : 'Configured');
+			}
+		} catch (err) {
+			setJellyseerrStatus(`Error: ${err.message}`);
+		}
+	}, [jellyseerrUrl, jellyseerrApiKey, jellyseerr]);
+
+	const handleJellyseerrDisconnect = useCallback(() => {
+		jellyseerr.disable();
+		setJellyseerrUrl('');
+		setJellyseerrApiKey('');
+		setJellyseerrStatus('');
+	}, [jellyseerr]);
 
 	return (
 		<Panel className={css.panel}>
@@ -123,6 +157,62 @@ const Settings = () => {
 							{SUBTITLE_MODES}
 						</Dropdown>
 					</div>
+				</section>
+
+				<section className={css.section}>
+					<h2>Jellyseerr</h2>
+					<BodyText size="small" className={css.hint}>
+						Connect to Jellyseerr to request new movies and TV shows
+					</BodyText>
+
+					{jellyseerr.isEnabled ? (
+						<div className={css.jellyseerrConnected}>
+							<div className={css.field}>
+								<span className={css.label}>Status</span>
+								<span className={css.value}>
+									{jellyseerr.isAuthenticated ? 'Connected' : 'Configured'}
+								</span>
+							</div>
+							<div className={css.field}>
+								<span className={css.label}>Server</span>
+								<span className={css.value}>{jellyseerr.serverUrl}</span>
+							</div>
+							{jellyseerr.user && (
+								<div className={css.field}>
+									<span className={css.label}>User</span>
+									<span className={css.value}>{jellyseerr.user.displayName}</span>
+								</div>
+							)}
+							<Button onClick={handleJellyseerrDisconnect} size="small">
+								Disconnect
+							</Button>
+						</div>
+					) : (
+						<div className={css.jellyseerrConfig}>
+							<Input
+								type="url"
+								placeholder="Jellyseerr URL (e.g., http://192.168.1.100:5055)"
+								value={jellyseerrUrl}
+								onChange={(e) => setJellyseerrUrl(e.value)}
+								className={css.input}
+							/>
+							<Input
+								type="password"
+								placeholder="API Key (optional)"
+								value={jellyseerrApiKey}
+								onChange={(e) => setJellyseerrApiKey(e.value)}
+								className={css.input}
+							/>
+							{jellyseerrStatus && (
+								<BodyText size="small" className={css.status}>
+									{jellyseerrStatus}
+								</BodyText>
+							)}
+							<Button onClick={handleJellyseerrSave}>
+								Connect
+							</Button>
+						</div>
+					)}
 				</section>
 
 				<section className={css.section}>

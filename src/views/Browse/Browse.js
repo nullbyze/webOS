@@ -3,12 +3,14 @@ import {Panel, Header} from '@enact/sandstone/Panels';
 import Spinner from '@enact/sandstone/Spinner';
 import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
+import {useJellyseerr} from '../../context/JellyseerrContext';
 import MediaRow from '../../components/MediaRow';
 
 import css from './Browse.module.less';
 
-const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings, onOpenFavorites, onOpenLiveTV}) => {
+const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings, onOpenFavorites, onOpenLiveTV, onOpenJellyseerr}) => {
 	const {api, serverUrl, user} = useAuth();
+	const {isEnabled: jellyseerrEnabled} = useJellyseerr();
 	const [rows, setRows] = useState([]);
 	const [libraries, setLibraries] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -88,6 +90,7 @@ const Browse = ({onSelectItem, onSelectLibrary, onOpenSearch, onOpenSettings, on
 	return (
 		<Panel>
 			<Header title="Moonfin" subtitle={user?.Name || ''}>
+				{jellyseerrEnabled && <Button icon="plus" onClick={onOpenJellyseerr} />}
 				<Button icon="heart" onClick={onOpenFavorites} />
 				<Button icon="liverecord" onClick={onOpenLiveTV} />
 				<Button icon="search" onClick={onOpenSearch} />

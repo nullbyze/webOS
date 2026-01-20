@@ -1,0 +1,93 @@
+.grid {
+	height: calc(100vh - 250px);
+	padding: 24px;
+}
+
+.card {
+	position: relative;
+	border-radius: 12px;
+	overflow: hidden;
+	background: #1a1a1a;
+	transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.card:focus {
+	transform: scale(1.05);
+	box-shadow: 0 0 0 4px #0070f3;
+	outline: none;
+}
+
+.poster {
+	width: 100%;
+	aspect-ratio: 2/3;
+}
+
+.noPoster {
+	width: 100%;
+	aspect-ratio: 2/3;
+	background: #333;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 48px;
+	color: #666;
+}
+
+.info {
+	padding: 12px;
+}
+
+.title {
+	font-size: 20px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.year {
+	font-size: 16px;
+	color: #888;
+	margin-top: 4px;
+}
+
+.status {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 14px;
+	font-weight: bold;
+}
+
+.status.available, .status[class*="5"] {
+	background: #22c55e;
+	color: #fff;
+}
+
+.status.partiallyAvailable, .status[class*="4"] {
+	background: #f59e0b;
+	color: #fff;
+}
+
+.status.processing, .status[class*="3"] {
+	background: #6366f1;
+	color: #fff;
+}
+
+.status.pending, .status[class*="2"] {
+	background: #ef4444;
+	color: #fff;
+}
+
+.notConfigured {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 400px;
+	font-size: 24px;
+	color: #888;
+	text-align: center;
+	gap: 16px;
+}

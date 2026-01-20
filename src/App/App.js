@@ -4,6 +4,7 @@ import Panels from '@enact/sandstone/Panels';
 
 import {AuthProvider, useAuth} from '../context/AuthContext';
 import {SettingsProvider} from '../context/SettingsContext';
+import {JellyseerrProvider} from '../context/JellyseerrContext';
 import Login from '../views/Login';
 import Browse from '../views/Browse';
 import Details from '../views/Details';
@@ -14,6 +15,9 @@ import Player from '../views/Player';
 import Favorites from '../views/Favorites';
 import Person from '../views/Person';
 import LiveTV from '../views/LiveTV';
+import JellyseerrDiscover from '../views/JellyseerrDiscover';
+import JellyseerrDetails from '../views/JellyseerrDetails';
+import JellyseerrRequests from '../views/JellyseerrRequests';
 
 import css from './App.module.less';
 
@@ -27,7 +31,10 @@ const PANELS = {
 	PLAYER: 6,
 	FAVORITES: 7,
 	PERSON: 8,
-	LIVETV: 9
+	LIVETV: 9,
+	JELLYSEERR_DISCOVER: 10,
+	JELLYSEERR_DETAILS: 11,
+	JELLYSEERR_REQUESTS: 12
 };
 
 const AppContent = (props) => {
@@ -38,6 +45,7 @@ const AppContent = (props) => {
 	const [selectedPerson, setSelectedPerson] = useState(null);
 	const [playingItem, setPlayingItem] = useState(null);
 	const [panelHistory, setPanelHistory] = useState([]);
+	const [jellyseerrItem, setJellyseerrItem] = useState(null);
 
 	const navigateTo = useCallback((panel, addToHistory = true) => {
 		if (addToHistory && panelIndex !== PANELS.LOGIN) {
@@ -111,6 +119,19 @@ const AppContent = (props) => {
 		navigateTo(PANELS.PLAYER);
 	}, [navigateTo]);
 
+	const handleOpenJellyseerr = useCallback(() => {
+		navigateTo(PANELS.JELLYSEERR_DISCOVER);
+	}, [navigateTo]);
+
+	const handleOpenJellyseerrRequests = useCallback(() => {
+		navigateTo(PANELS.JELLYSEERR_REQUESTS);
+	}, [navigateTo]);
+
+	const handleSelectJellyseerrItem = useCallback((item) => {
+		setJellyseerrItem(item);
+		navigateTo(PANELS.JELLYSEERR_DETAILS);
+	}, [navigateTo]);
+
 	if (isLoading) {
 		return <div className={css.loading}>Loading...</div>;
 	}
@@ -130,6 +151,7 @@ const AppContent = (props) => {
 					onOpenSettings={handleOpenSettings}
 					onOpenFavorites={handleOpenFavorites}
 					onOpenLiveTV={handleOpenLiveTV}
+					onOpenJellyseerr={handleOpenJellyseerr}
 				/>
 				<Details
 					itemId={selectedItem?.Id}
@@ -154,6 +176,19 @@ const AppContent = (props) => {
 				<Favorites onSelectItem={handleSelectItem} />
 				<Person personId={selectedPerson?.Id} onSelectItem={handleSelectItem} />
 				<LiveTV onPlayChannel={handlePlayChannel} />
+				<JellyseerrDiscover
+					onSelectItem={handleSelectJellyseerrItem}
+					onOpenRequests={handleOpenJellyseerrRequests}
+				/>
+				<JellyseerrDetails
+					mediaType={jellyseerrItem?.mediaType}
+					mediaId={jellyseerrItem?.mediaId}
+					onClose={handleBack}
+				/>
+				<JellyseerrRequests
+					onSelectItem={handleSelectJellyseerrItem}
+					onClose={handleBack}
+				/>
 			</Panels>
 		</div>
 	);
@@ -162,7 +197,9 @@ const AppContent = (props) => {
 const AppBase = (props) => (
 	<SettingsProvider>
 		<AuthProvider>
-			<AppContent {...props} />
+			<JellyseerrProvider>
+				<AppContent {...props} />
+			</JellyseerrProvider>
 		</AuthProvider>
 	</SettingsProvider>
 );
