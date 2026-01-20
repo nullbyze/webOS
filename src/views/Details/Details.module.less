@@ -1,0 +1,140 @@
+.panel {
+	position: relative;
+	overflow: hidden;
+}
+
+.backdrop {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 600px;
+	z-index: 0;
+}
+
+.backdropImage {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.backdropGradient {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.9) 70%, #000 100%);
+}
+
+.content {
+	position: relative;
+	z-index: 1;
+	padding: 120px 60px 60px;
+}
+
+.main {
+	display: flex;
+	gap: 48px;
+	margin-bottom: 48px;
+}
+
+.poster {
+	flex-shrink: 0;
+	width: 300px;
+	height: 450px;
+	border-radius: 12px;
+	overflow: hidden;
+	box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.posterImage {
+	width: 100%;
+	height: 100%;
+}
+
+.info {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.title {
+	font-size: 48px;
+	font-weight: bold;
+	margin: 0;
+}
+
+.meta {
+	display: flex;
+	gap: 24px;
+	font-size: 24px;
+	color: #aaa;
+}
+
+.genres {
+	font-size: 20px;
+	color: #888;
+}
+
+.overview {
+	font-size: 22px;
+	line-height: 1.5;
+	max-width: 800px;
+	color: #ccc;
+}
+
+.actions {
+	display: flex;
+	gap: 16px;
+	margin-top: 16px;
+}
+
+.people {
+	margin-top: 24px;
+}
+
+.people h3 {
+	font-size: 24px;
+	margin-bottom: 12px;
+}
+
+.peopleList {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+.person {
+	display: flex;
+	flex-direction: column;
+	padding: 8px 16px;
+	background: rgba(255,255,255,0.1);
+	border-radius: 8px;
+	cursor: pointer;
+}
+
+.person:hover, .person:focus {
+	background: rgba(255,255,255,0.2);
+}
+
+.personName {
+	font-size: 18px;
+}
+
+.personRole {
+	font-size: 14px;
+	color: #888;
+}
+
+.seasons {
+	margin-top: 32px;
+}
+
+.seasonTabs {
+	display: flex;
+	gap: 12px;
+	margin-bottom: 24px;
+	flex-wrap: wrap;
+}
