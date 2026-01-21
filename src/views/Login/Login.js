@@ -21,7 +21,7 @@ const Login = ({onLoggedIn}) => {
 	const [username, setUsername] = useState('');
 	const [password, setPassword] = useState('');
 	const [quickConnectCode, setQuickConnectCode] = useState('');
-	const [quickConnectSecret, setQuickConnectSecret] = useState(null);
+	const [, setQuickConnectSecret] = useState(null);
 	const [quickConnectInterval, setQuickConnectInterval] = useState(null);
 	const [error, setError] = useState(null);
 	const [status, setStatus] = useState(null);
@@ -38,6 +38,18 @@ const Login = ({onLoggedIn}) => {
 			setTimeout(() => Spotlight.focus('[data-spotlight-id="server-input"]'), 100);
 		}
 	}, [isLoading, step]);
+
+	const handleServerUrlChange = useCallback((e) => {
+		setServerUrl(e.target.value);
+	}, []);
+
+	const handleUsernameChange = useCallback((e) => {
+		setUsername(e.target.value);
+	}, []);
+
+	const handlePasswordChange = useCallback((e) => {
+		setPassword(e.target.value);
+	}, []);
 
 	const handleConnect = useCallback(async () => {
 		if (!serverUrl.trim()) return;
@@ -188,6 +200,58 @@ const Login = ({onLoggedIn}) => {
 		setTimeout(() => Spotlight.focus('[data-spotlight-id="user-0"]'), 100);
 	}, [quickConnectInterval]);
 
+	const handleServerInputKeyDown = useCallback((e) => {
+		if (e.keyCode === 13) {
+			handleConnect();
+		}
+	}, [handleConnect]);
+
+	const handlePasswordKeyDown = useCallback((e) => {
+		if (e.keyCode === 13) {
+			handleLogin();
+		}
+	}, [handleLogin]);
+
+	const handleUserCardClick = useCallback((e) => {
+		const userId = e.currentTarget.dataset.userId;
+		const user = publicUsers.find(u => u.Id === userId);
+		if (user) handleUserSelect(user);
+	}, [publicUsers, handleUserSelect]);
+
+	const handleUserCardKeyDown = useCallback((e) => {
+		if (e.keyCode === 13) {
+			const userId = e.currentTarget.dataset.userId;
+			const user = publicUsers.find(u => u.Id === userId);
+			if (user) handleUserSelect(user);
+		}
+	}, [publicUsers, handleUserSelect]);
+
+	const handleQuickConnectClick = useCallback(() => {
+		if (selectedUser) handleQuickConnect(selectedUser);
+	}, [selectedUser, handleQuickConnect]);
+
+	const handlePasswordMethodClick = useCallback(() => {
+		setStep('passwordform');
+		setTimeout(() => Spotlight.focus('[data-spotlight-id="password-input"]'), 100);
+	}, []);
+
+	const handlePasswordFormCancel = useCallback(() => {
+		setStep('password');
+		setPassword('');
+		setTimeout(() => Spotlight.focus('[data-spotlight-id="use-password-btn"]'), 100);
+	}, []);
+
+	const handleUsePasswordInstead = useCallback(() => {
+		if (quickConnectInterval) {
+			clearInterval(quickConnectInterval);
+			setQuickConnectInterval(null);
+		}
+		setQuickConnectCode('');
+		setQuickConnectSecret(null);
+		setStep('passwordform');
+		setTimeout(() => Spotlight.focus('[data-spotlight-id="password-input"]'), 100);
+	}, [quickConnectInterval]);
+
 	useEffect(() => {
 		return () => {
 			if (quickConnectInterval) {
@@ -195,12 +259,6 @@ const Login = ({onLoggedIn}) => {
 			}
 		};
 	}, [quickConnectInterval]);
-
-	const handleKeyDown = useCallback((e, action) => {
-		if (e.keyCode === 13) {
-			action();
-		}
-	}, []);
 
 	if (isLoading) {
 		return (
@@ -235,8 +293,8 @@ const Login = ({onLoggedIn}) => {
 									className={css.input}
 									placeholder="192.168.1.100 or jellyfin.example.com"
 									value={serverUrl}
-									onChange={(e) => setServerUrl(e.target.value)}
-									onKeyDown={(e) => handleKeyDown(e, handleConnect)}
+									onChange={handleServerUrlChange}
+									onKeyDown={handleServerInputKeyDown}
 									disabled={isConnecting}
 								/>
 								<div className={css.buttonGroup}>
@@ -262,9 +320,10 @@ const Login = ({onLoggedIn}) => {
 									<SpottableDiv
 										key={user.Id}
 										data-spotlight-id={`user-${index}`}
+										data-user-id={user.Id}
 										className={css.userCard}
-										onClick={() => handleUserSelect(user)}
-										onKeyDown={(e) => handleKeyDown(e, () => handleUserSelect(user))}
+										onClick={handleUserCardClick}
+										onKeyDown={handleUserCardKeyDown}
 									>
 										{user.PrimaryImageTag ? (
 											<img
@@ -321,17 +380,14 @@ const Login = ({onLoggedIn}) => {
 								<SpottableButton
 									data-spotlight-id="use-qc-btn"
 									className={`${css.btn} ${css.btnPrimary}`}
-									onClick={() => handleQuickConnect(selectedUser)}
+									onClick={handleQuickConnectClick}
 								>
 									Quick Connect
 								</SpottableButton>
 								<SpottableButton
 									data-spotlight-id="use-password-btn"
 									className={`${css.btn} ${css.btnSecondary}`}
-									onClick={() => {
-										setStep('passwordform');
-										setTimeout(() => Spotlight.focus('[data-spotlight-id="password-input"]'), 100);
-									}}
+									onClick={handlePasswordMethodClick}
 								>
 									Password
 								</SpottableButton>
@@ -372,8 +428,8 @@ const Login = ({onLoggedIn}) => {
 									className={css.input}
 									placeholder="Password (leave empty if none)"
 									value={password}
-									onChange={(e) => setPassword(e.target.value)}
-									onKeyDown={(e) => handleKeyDown(e, handleLogin)}
+									onChange={handlePasswordChange}
+									onKeyDown={handlePasswordKeyDown}
 									disabled={isConnecting}
 								/>
 								<div className={css.buttonGroup}>
@@ -388,11 +444,7 @@ const Login = ({onLoggedIn}) => {
 									<SpottableButton
 										data-spotlight-id="cancel-btn"
 										className={`${css.btn} ${css.btnSecondary}`}
-										onClick={() => {
-											setStep('password');
-											setPassword('');
-											setTimeout(() => Spotlight.focus('[data-spotlight-id="use-password-btn"]'), 100);
-										}}
+										onClick={handlePasswordFormCancel}
 									>
 										Back
 									</SpottableButton>
@@ -427,16 +479,7 @@ const Login = ({onLoggedIn}) => {
 								<SpottableButton
 									data-spotlight-id="use-password-instead-btn"
 									className={`${css.btn} ${css.btnSecondary}`}
-									onClick={() => {
-										if (quickConnectInterval) {
-											clearInterval(quickConnectInterval);
-											setQuickConnectInterval(null);
-										}
-										setQuickConnectCode('');
-										setQuickConnectSecret(null);
-										setStep('passwordform');
-										setTimeout(() => Spotlight.focus('[data-spotlight-id="password-input"]'), 100);
-									}}
+									onClick={handleUsePasswordInstead}
 								>
 									Use Password Instead
 								</SpottableButton>
@@ -463,7 +506,7 @@ const Login = ({onLoggedIn}) => {
 									className={css.input}
 									placeholder="Username"
 									value={username}
-									onChange={(e) => setUsername(e.target.value)}
+									onChange={handleUsernameChange}
 									disabled={isConnecting}
 								/>
 							</div>
@@ -475,8 +518,8 @@ const Login = ({onLoggedIn}) => {
 									className={css.input}
 									placeholder="Password"
 									value={password}
-									onChange={(e) => setPassword(e.target.value)}
-									onKeyDown={(e) => handleKeyDown(e, handleLogin)}
+									onChange={handlePasswordChange}
+									onKeyDown={handlePasswordKeyDown}
 									disabled={isConnecting}
 								/>
 							</div>

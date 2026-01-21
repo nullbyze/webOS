@@ -63,7 +63,7 @@ const request = async (endpoint, options = {}) => {
 			try {
 				const errorBody = JSON.parse(result.body);
 				errorMessage = errorBody.message || errorBody.error || errorMessage;
-			} catch (e) {}
+			} catch (e) { void e; }
 		}
 		const error = new Error(errorMessage);
 		error.status = result.status;

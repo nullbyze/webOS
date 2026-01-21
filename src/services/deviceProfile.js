@@ -30,9 +30,9 @@ export const getDeviceCapabilities = async () => {
 	let configData = {};
 
 	try {
-		const deviceInfo = await import('@enact/webos/deviceInfo');
+		const deviceInfo = await import('@enact/webos/deviceinfo');
 		deviceInfoData = await new Promise(resolve => deviceInfo.default(resolve));
-	} catch (e) {}
+	} catch (e) { void e; }
 
 	try {
 		const LS2Request = (await import('@enact/webos/LS2Request')).default;
@@ -59,7 +59,7 @@ export const getDeviceCapabilities = async () => {
 				onFailure: () => resolve({configs: {}})
 			});
 		});
-	} catch (e) {}
+	} catch (e) { void e; }
 
 	const cfg = configData.configs || {};
 
