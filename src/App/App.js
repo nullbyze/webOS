@@ -1,6 +1,5 @@
-import {useState, useCallback} from 'react';
+import {useState, useCallback, useEffect} from 'react';
 import ThemeDecorator from '@enact/sandstone/ThemeDecorator';
-import Panels from '@enact/sandstone/Panels';
 
 import {AuthProvider, useAuth} from '../context/AuthContext';
 import {SettingsProvider} from '../context/SettingsContext';
@@ -63,6 +62,24 @@ const AppContent = (props) => {
 			setPanelIndex(PANELS.BROWSE);
 		}
 	}, [panelHistory, panelIndex]);
+
+	// Global back button handler
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			// webOS back button (461) or Escape key (27)
+			if (e.keyCode === 461 || e.keyCode === 27) {
+				// Don't handle back if we're on Login or Browse (root)
+				if (panelIndex !== PANELS.LOGIN && panelIndex !== PANELS.BROWSE) {
+					e.preventDefault();
+					e.stopPropagation();
+					handleBack();
+				}
+			}
+		};
+
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [panelIndex, handleBack]);
 
 	const handleLoggedIn = useCallback(() => {
 		setPanelHistory([]);
@@ -136,60 +153,91 @@ const AppContent = (props) => {
 		return <div className={css.loading}>Loading...</div>;
 	}
 
-	return (
-		<div className={css.app} {...props}>
-			<Panels
-				index={panelIndex}
-				onBack={handleBack}
-				noCloseButton
-			>
-				<Login onLoggedIn={handleLoggedIn} />
-				<Browse
-					onSelectItem={handleSelectItem}
-					onSelectLibrary={handleSelectLibrary}
-					onOpenSearch={handleOpenSearch}
-					onOpenSettings={handleOpenSettings}
-					onOpenFavorites={handleOpenFavorites}
-					onOpenLiveTV={handleOpenLiveTV}
-					onOpenJellyseerr={handleOpenJellyseerr}
-				/>
-				<Details
-					itemId={selectedItem?.Id}
-					onPlay={handlePlay}
-					onSelectItem={handleSelectItem}
-					onSelectPerson={handleSelectPerson}
-				/>
-				<Library
-					library={selectedLibrary}
-					onSelectItem={handleSelectItem}
-				/>
-				<Search onSelectItem={handleSelectItem} />
-				<Settings />
-				{playingItem && (
+	// Render only the active view - no Panels overhead
+	const renderView = () => {
+		switch (panelIndex) {
+			case PANELS.LOGIN:
+				return <Login onLoggedIn={handleLoggedIn} />;
+			case PANELS.BROWSE:
+				return (
+					<Browse
+						onSelectItem={handleSelectItem}
+						onSelectLibrary={handleSelectLibrary}
+						onOpenSearch={handleOpenSearch}
+						onOpenSettings={handleOpenSettings}
+						onOpenFavorites={handleOpenFavorites}
+						onOpenLiveTV={handleOpenLiveTV}
+						onOpenJellyseerr={handleOpenJellyseerr}
+					/>
+				);
+			case PANELS.DETAILS:
+				return (
+					<Details
+						itemId={selectedItem?.Id}
+						onPlay={handlePlay}
+						onSelectItem={handleSelectItem}
+						onSelectPerson={handleSelectPerson}
+						onBack={handleBack}
+					/>
+				);
+			case PANELS.LIBRARY:
+				return (
+					<Library
+						library={selectedLibrary}
+						onSelectItem={handleSelectItem}
+						onBack={handleBack}
+					/>
+				);
+			case PANELS.SEARCH:
+				return <Search onSelectItem={handleSelectItem} onBack={handleBack} />;
+			case PANELS.SETTINGS:
+				return <Settings onBack={handleBack} />;
+			case PANELS.PLAYER:
+				return playingItem ? (
 					<Player
 						item={playingItem}
 						onEnded={handlePlayerEnd}
 						onBack={handlePlayerEnd}
 						onPlayNext={handlePlayNext}
 					/>
-				)}
-				<Favorites onSelectItem={handleSelectItem} />
-				<Person personId={selectedPerson?.Id} onSelectItem={handleSelectItem} />
-				<LiveTV onPlayChannel={handlePlayChannel} />
-				<JellyseerrDiscover
-					onSelectItem={handleSelectJellyseerrItem}
-					onOpenRequests={handleOpenJellyseerrRequests}
-				/>
-				<JellyseerrDetails
-					mediaType={jellyseerrItem?.mediaType}
-					mediaId={jellyseerrItem?.mediaId}
-					onClose={handleBack}
-				/>
-				<JellyseerrRequests
-					onSelectItem={handleSelectJellyseerrItem}
-					onClose={handleBack}
-				/>
-			</Panels>
+				) : null;
+			case PANELS.FAVORITES:
+				return <Favorites onSelectItem={handleSelectItem} onBack={handleBack} />;
+			case PANELS.PERSON:
+				return <Person personId={selectedPerson?.Id} onSelectItem={handleSelectItem} onBack={handleBack} />;
+			case PANELS.LIVETV:
+				return <LiveTV onPlayChannel={handlePlayChannel} onBack={handleBack} />;
+			case PANELS.JELLYSEERR_DISCOVER:
+				return (
+					<JellyseerrDiscover
+						onSelectItem={handleSelectJellyseerrItem}
+						onOpenRequests={handleOpenJellyseerrRequests}
+						onBack={handleBack}
+					/>
+				);
+			case PANELS.JELLYSEERR_DETAILS:
+				return (
+					<JellyseerrDetails
+						mediaType={jellyseerrItem?.mediaType}
+						mediaId={jellyseerrItem?.mediaId}
+						onClose={handleBack}
+					/>
+				);
+			case PANELS.JELLYSEERR_REQUESTS:
+				return (
+					<JellyseerrRequests
+						onSelectItem={handleSelectJellyseerrItem}
+						onClose={handleBack}
+					/>
+				);
+			default:
+				return <Browse onSelectItem={handleSelectItem} />;
+		}
+	};
+
+	return (
+		<div className={css.app} {...props}>
+			{renderView()}
 		</div>
 	);
 };
