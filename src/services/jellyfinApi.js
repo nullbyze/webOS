@@ -7,7 +7,24 @@ let currentUser = null;
 let accessToken = null;
 
 export const setServer = (serverUrl) => {
-	currentServer = serverUrl.replace(/\/+$/, '');
+	let url = serverUrl?.trim();
+	if (!url) {
+		currentServer = null;
+		return;
+	}
+
+	url = url.replace(/\/+$/, '');
+
+	if (!/^https?:\/\//i.test(url)) {
+		url = 'http://' + url;
+	}
+
+	const urlObj = new URL(url);
+	if (!urlObj.port && urlObj.protocol === 'http:') {
+		urlObj.port = '8096';
+	}
+
+	currentServer = urlObj.toString().replace(/\/+$/, '');
 };
 
 export const setAuth = (userId, token) => {
@@ -79,9 +96,22 @@ const request = async (endpoint, options = {}) => {
 export const api = {
 	getPublicInfo: () => request('/System/Info/Public'),
 
+	getPublicUsers: () => request('/Users/Public'),
+
 	authenticateByName: (username, password) => request('/Users/AuthenticateByName', {
 		method: 'POST',
 		body: {Username: username, Pw: password}
+	}),
+
+	initiateQuickConnect: () => request('/QuickConnect/Initiate', {
+		method: 'POST'
+	}),
+
+	getQuickConnectState: (secret) => request(`/QuickConnect/Connect?Secret=${secret}`),
+
+	authenticateQuickConnect: (secret) => request('/Users/AuthenticateWithQuickConnect', {
+		method: 'POST',
+		body: {Secret: secret}
 	}),
 
 	getLibraries: () => request(`/Users/${currentUser}/Views`),

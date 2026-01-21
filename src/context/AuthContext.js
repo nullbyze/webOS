@@ -51,6 +51,26 @@ export const AuthProvider = ({children}) => {
 		return result;
 	}, []);
 
+	const loginWithToken = useCallback(async (server, authResult) => {
+		jellyfinApi.setServer(server);
+		jellyfinApi.setAuth(authResult.User.Id, authResult.AccessToken);
+
+		const authData = {
+			serverUrl: server,
+			userId: authResult.User.Id,
+			token: authResult.AccessToken,
+			user: authResult.User
+		};
+
+		await saveToStorage('auth', authData);
+
+		setServerUrl(server);
+		setUser(authResult.User);
+		setIsAuthenticated(true);
+
+		return authResult;
+	}, []);
+
 	const logout = useCallback(async () => {
 		await removeFromStorage('auth');
 		setUser(null);
@@ -65,6 +85,7 @@ export const AuthProvider = ({children}) => {
 			user,
 			serverUrl,
 			login,
+			loginWithToken,
 			logout,
 			api: jellyfinApi.api
 		}}>

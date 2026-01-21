@@ -93,20 +93,43 @@ export const saveToStorage = async (key, value) => {
 	return new Promise((resolve, reject) => {
 		new LS2().send({
 			service: 'luna://com.webos.service.db',
-			method: 'merge',
+			method: 'del',
 			parameters: {
-				objects: [{
-					_kind: DB_KIND,
-					key: key,
-					value: value
-				}],
 				query: {
 					from: DB_KIND,
 					where: [{prop: 'key', op: '=', val: key}]
 				}
 			},
-			onSuccess: resolve,
-			onFailure: reject
+			onSuccess: () => {
+				new LS2().send({
+					service: 'luna://com.webos.service.db',
+					method: 'put',
+					parameters: {
+						objects: [{
+							_kind: DB_KIND,
+							key: key,
+							value: value
+						}]
+					},
+					onSuccess: () => resolve(true),
+					onFailure: reject
+				});
+			},
+			onFailure: () => {
+				new LS2().send({
+					service: 'luna://com.webos.service.db',
+					method: 'put',
+					parameters: {
+						objects: [{
+							_kind: DB_KIND,
+							key: key,
+							value: value
+						}]
+					},
+					onSuccess: () => resolve(true),
+					onFailure: reject
+				});
+			}
 		});
 	});
 };
