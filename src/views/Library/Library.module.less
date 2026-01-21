@@ -8,19 +8,29 @@
 	padding: 16px 60px;
 	display: flex;
 	flex-direction: column;
-	gap: 16px;
+
+	> * + * {
+		margin-top: 16px;
+	}
 }
 
 .filters {
 	display: flex;
-	gap: 16px;
 	align-items: center;
+
+	> * + * {
+		margin-left: 16px;
+	}
 }
 
 .genres {
 	display: flex;
-	gap: 8px;
 	flex-wrap: wrap;
+	margin: -4px;
+
+	> * {
+		margin: 4px;
+	}
 }
 
 .grid {

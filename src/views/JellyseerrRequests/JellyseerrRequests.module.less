@@ -3,12 +3,15 @@
 	flex-direction: row;
 	align-items: center;
 	padding: 1rem;
-	gap: 1rem;
 	background: rgba(255, 255, 255, 0.05);
 	border-radius: 8px;
 	margin: 0.5rem 1rem;
 	cursor: pointer;
 	transition: background 0.2s;
+
+	> * + * {
+		margin-left: 1rem;
+	}
 
 	&:focus {
 		background: rgba(255, 255, 255, 0.15);
@@ -25,7 +28,10 @@
 
 .requestInfo {
 	flex: 1;
-	gap: 0.5rem;
+
+	> * + * {
+		margin-top: 0.5rem;
+	}
 }
 
 .title {
@@ -35,8 +41,11 @@
 }
 
 .meta {
-	gap: 1rem;
 	align-items: center;
+
+	> * + * {
+		margin-left: 1rem;
+	}
 }
 
 .type {
@@ -106,5 +115,8 @@
 .message,
 .error {
 	padding: 2rem;
-	gap: 1rem;
+
+	> * + * {
+		margin-top: 1rem;
+	}
 }

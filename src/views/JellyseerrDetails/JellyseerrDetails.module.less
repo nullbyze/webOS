@@ -30,9 +30,12 @@
 
 .content {
 	padding: 2rem;
-	gap: 2rem;
 	position: relative;
 	z-index: 1;
+
+	> * + * {
+		margin-left: 2rem;
+	}
 }
 
 .poster {
@@ -44,7 +47,10 @@
 
 .info {
 	padding: 1rem;
-	gap: 1rem;
+
+	> * + * {
+		margin-top: 1rem;
+	}
 }
 
 .title {
@@ -65,8 +71,11 @@
 }
 
 .meta {
-	gap: 2rem;
 	align-items: center;
+
+	> * + * {
+		margin-left: 2rem;
+	}
 }
 
 .rating {
@@ -110,8 +119,12 @@
 }
 
 .genres {
-	gap: 0.5rem;
 	flex-wrap: wrap;
+	margin: -0.25rem;
+
+	> * {
+		margin: 0.25rem;
+	}
 }
 
 .genre {
@@ -128,8 +141,11 @@
 }
 
 .actions {
-	gap: 1rem;
 	margin-top: 1rem;
+
+	> * + * {
+		margin-left: 1rem;
+	}
 }
 
 .available {
@@ -139,7 +155,10 @@
 
 .error {
 	padding: 2rem;
-	gap: 1rem;
+
+	> * + * {
+		margin-top: 1rem;
+	}
 }
 
 .sectionTitle {
@@ -153,7 +172,9 @@
 }
 
 .castList {
-	gap: 0.5rem;
+	> * + * {
+		margin-left: 0.5rem;
+	}
 }
 
 .castMember {

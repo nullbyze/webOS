@@ -29,7 +29,10 @@
 
 .items {
 	display: flex;
-	gap: 16px;
 	padding: 10px 0;
 	width: max-content;
+
+	> * + * {
+		margin-left: 16px;
+	}
 }

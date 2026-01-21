@@ -2,7 +2,10 @@
 	display: flex;
 	height: calc(100% - 120px);
 	padding: 24px 48px;
-	gap: 48px;
+
+	> * + * {
+		margin-left: 48px;
+	}
 }
 
 .channelList {
@@ -18,7 +21,10 @@
 .channelRow {
 	display: flex;
 	align-items: center;
-	gap: 16px;
+
+	> * + * {
+		margin-left: 16px;
+	}
 }
 
 .channelLogo {

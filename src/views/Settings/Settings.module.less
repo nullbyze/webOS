@@ -13,19 +13,25 @@
 	padding: 40px 20px;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
 	border-right: 1px solid #252525;
+
+	> * + * {
+		margin-top: 8px;
+	}
 }
 
 .category {
 	display: flex;
 	align-items: center;
-	gap: 16px;
 	padding: 16px 20px;
 	border-radius: 8px;
 	cursor: pointer;
 	transition: background 0.2s, transform 0.2s;
 	color: #999;
+
+	> * + * {
+		margin-left: 16px;
+	}
 
 	&:focus {
 		outline: none;
@@ -226,7 +232,10 @@
 .authButtons {
 	display: flex;
 	flex-direction: column;
-	gap: 12px;
+
+	> * + * {
+		margin-top: 12px;
+	}
 }
 
 .authMethodButton {
