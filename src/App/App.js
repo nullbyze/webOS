@@ -208,7 +208,7 @@ const AppContent = (props) => {
 					/>
 				);
 			case PANELS.SEARCH:
-				return <Search onSelectItem={handleSelectItem} onBack={handleBack} />;
+				return <Search onSelectItem={handleSelectItem} onSelectPerson={handleSelectPerson} onBack={handleBack} />;
 			case PANELS.SETTINGS:
 				return <Settings onBack={handleBack} onLogout={handleSwitchUser} />;
 			case PANELS.PLAYER:

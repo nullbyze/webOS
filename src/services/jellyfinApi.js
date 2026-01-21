@@ -152,8 +152,8 @@ export const api = {
 		body: data
 	}),
 
-	search: (query, limit = 24) =>
-		request(`/Users/${currentUser}/Items?searchTerm=${encodeURIComponent(query)}&Limit=${limit}&Recursive=true&IncludeItemTypes=Movie,Series,Episode&Fields=PrimaryImageAspectRatio,ProductionYear`),
+	search: (query, limit = 150) =>
+		request(`/Users/${currentUser}/Items?searchTerm=${encodeURIComponent(query)}&Limit=${limit}&Recursive=true&IncludeItemTypes=Movie,Series,Episode,Person&Fields=PrimaryImageAspectRatio,ProductionYear`),
 
 	getSeasons: (seriesId) =>
 		request(`/Shows/${seriesId}/Seasons?UserId=${currentUser}&Fields=PrimaryImageAspectRatio`),
