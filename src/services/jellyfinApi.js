@@ -136,8 +136,11 @@ export const api = {
 	getResumeItems: (limit = 12) =>
 		request(`/Users/${currentUser}/Items/Resume?Limit=${limit}&MediaTypes=Video`),
 
-	getNextUp: (limit = 24) =>
-		request(`/Shows/NextUp?UserId=${currentUser}&Limit=${limit}`),
+	getNextUp: (limit = 24, seriesId = null) => {
+		let url = `/Shows/NextUp?UserId=${currentUser}&Limit=${limit}`;
+		if (seriesId) url += `&SeriesId=${seriesId}`;
+		return request(url);
+	},
 
 	getPlaybackInfo: (itemId, body = {}) => request(`/Items/${itemId}/PlaybackInfo`, {
 		method: 'POST',

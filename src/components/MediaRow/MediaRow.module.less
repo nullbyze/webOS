@@ -1,6 +1,8 @@
 .row {
 	margin-bottom: 30px;
 	overflow: visible;
+	padding-left: 60px;
+	padding-right: 60px;
 
 	&:first-child {
 		margin-top: 40px;
@@ -11,16 +13,17 @@
 	font-size: 28px;
 	font-weight: 600;
 	margin: 0 0 20px 0;
-	padding-left: 60px;
 	color: #ffffff;
 }
 
 .scroller {
 	overflow-x: auto;
-	overflow-y: hidden;
+	overflow-y: visible;
 	padding-left: 60px;
 	padding-right: 60px;
 	scrollbar-width: none;
+	margin-left: -60px;
+	margin-right: -60px;
 
 	&::-webkit-scrollbar {
 		display: none;
@@ -29,10 +32,10 @@
 
 .items {
 	display: flex;
-	padding: 10px 0;
+	padding: 20px 0;
 	width: max-content;
 
 	> * + * {
-		margin-left: 16px;
+		margin-left: 24px;
 	}
 }
