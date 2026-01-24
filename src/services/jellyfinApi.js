@@ -117,7 +117,14 @@ export const api = {
 	getLibraries: () => request(`/Users/${currentUser}/Views`),
 
 	getItems: (params = {}) => {
-		const query = new URLSearchParams(params).toString();
+		// Manually build query string to avoid URLSearchParams issues
+		const queryParts = [];
+		for (const [key, value] of Object.entries(params)) {
+			if (value !== undefined && value !== null && value !== '') {
+				queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+			}
+		}
+		const query = queryParts.join('&');
 		return request(`/Users/${currentUser}/Items?${query}`);
 	},
 
@@ -164,8 +171,10 @@ export const api = {
 	getSimilar: (itemId, limit = 12) =>
 		request(`/Items/${itemId}/Similar?UserId=${currentUser}&Limit=${limit}&Fields=PrimaryImageAspectRatio,ProductionYear`),
 
-	getGenres: (libraryId) =>
-		request(`/Genres?UserId=${currentUser}&ParentId=${libraryId}&SortBy=SortName`),
+	getGenres: (libraryId) => {
+		const params = libraryId ? `&ParentId=${libraryId}` : '';
+		return request(`/Genres?UserId=${currentUser}&SortBy=SortName${params}`);
+	},
 
 	getItemsByGenre: (genreId, libraryId, limit = 50) =>
 		request(`/Users/${currentUser}/Items?GenreIds=${genreId}&ParentId=${libraryId}&Limit=${limit}&Recursive=true&IncludeItemTypes=Movie,Series&Fields=PrimaryImageAspectRatio,ProductionYear`),
@@ -181,6 +190,10 @@ export const api = {
 
 	getRandomItem: (includeTypes = 'Movie,Series') =>
 		request(`/Items?UserId=${currentUser}&IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=1&Fields=PrimaryImageAspectRatio,Overview`),
+
+	// Get all movies and series for genres page
+	getAllItems: (limit = 10000) =>
+		request(`/Users/${currentUser}/Items?IncludeItemTypes=Movie,Series&Recursive=true&Fields=Genres,PrimaryImageAspectRatio,ProductionYear&SortBy=SortName&SortOrder=Ascending&Limit=${limit}&ExcludeItemTypes=BoxSet`),
 
 	setFavorite: (itemId, isFavorite) => request(`/Users/${currentUser}/FavoriteItems/${itemId}`, {
 		method: isFavorite ? 'POST' : 'DELETE'

@@ -12,6 +12,8 @@ import Search from '../views/Search';
 import Settings from '../views/Settings';
 import Player from '../views/Player';
 import Favorites from '../views/Favorites';
+import Genres from '../views/Genres';
+import GenreBrowse from '../views/GenreBrowse';
 import Person from '../views/Person';
 import LiveTV from '../views/LiveTV';
 import JellyseerrDiscover from '../views/JellyseerrDiscover';
@@ -29,11 +31,13 @@ const PANELS = {
 	SETTINGS: 5,
 	PLAYER: 6,
 	FAVORITES: 7,
-	PERSON: 8,
-	LIVETV: 9,
-	JELLYSEERR_DISCOVER: 10,
-	JELLYSEERR_DETAILS: 11,
-	JELLYSEERR_REQUESTS: 12
+	GENRES: 8,
+	PERSON: 9,
+	LIVETV: 10,
+	JELLYSEERR_DISCOVER: 11,
+	JELLYSEERR_DETAILS: 12,
+	JELLYSEERR_REQUESTS: 13,
+	GENRE_BROWSE: 14
 };
 
 const AppContent = (props) => {
@@ -42,6 +46,8 @@ const AppContent = (props) => {
 	const [selectedItem, setSelectedItem] = useState(null);
 	const [selectedLibrary, setSelectedLibrary] = useState(null);
 	const [selectedPerson, setSelectedPerson] = useState(null);
+	const [selectedGenre, setSelectedGenre] = useState(null);
+	const [selectedGenreLibraryId, setSelectedGenreLibraryId] = useState(null);
 	const [playingItem, setPlayingItem] = useState(null);
 	const [panelHistory, setPanelHistory] = useState([]);
 	const [jellyseerrItem, setJellyseerrItem] = useState(null);
@@ -133,6 +139,16 @@ const AppContent = (props) => {
 		navigateTo(PANELS.FAVORITES);
 	}, [navigateTo]);
 
+	const handleOpenGenres = useCallback(() => {
+		navigateTo(PANELS.GENRES);
+	}, [navigateTo]);
+
+	const handleSelectGenre = useCallback((genre, libraryId) => {
+		setSelectedGenre(genre);
+		setSelectedGenreLibraryId(libraryId);
+		navigateTo(PANELS.GENRE_BROWSE);
+	}, [navigateTo]);
+
 	const handleSelectPerson = useCallback((person) => {
 		setSelectedPerson(person);
 		navigateTo(PANELS.PERSON);
@@ -184,6 +200,7 @@ const AppContent = (props) => {
 						onOpenSearch={handleOpenSearch}
 						onOpenSettings={handleOpenSettings}
 						onOpenFavorites={handleOpenFavorites}
+						onOpenGenres={handleOpenGenres}
 						onOpenLiveTV={handleOpenLiveTV}
 						onOpenJellyseerr={handleOpenJellyseerr}
 						onSwitchUser={handleSwitchUser}
@@ -222,6 +239,17 @@ const AppContent = (props) => {
 				) : null;
 			case PANELS.FAVORITES:
 				return <Favorites onSelectItem={handleSelectItem} onBack={handleBack} />;
+			case PANELS.GENRES:
+				return <Genres onSelectGenre={handleSelectGenre} onBack={handleBack} />;
+			case PANELS.GENRE_BROWSE:
+				return (
+					<GenreBrowse
+						genre={selectedGenre}
+						libraryId={selectedGenreLibraryId}
+						onSelectItem={handleSelectItem}
+						onBack={handleBack}
+					/>
+				);
 			case PANELS.PERSON:
 				return <Person personId={selectedPerson?.Id} onSelectItem={handleSelectItem} onBack={handleBack} />;
 			case PANELS.LIVETV:

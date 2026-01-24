@@ -28,5 +28,43 @@ export const getImageUrl = (serverUrl, itemId, imageType = 'Primary', options = 
 
 export const getBackdropId = (item) => {
 	if (!item) return null;
-	return item.BackdropImageTags?.length > 0 ? item.Id : (item.ParentBackdropItemId || item.Id);
+	// Only return ID if the item actually has backdrop images
+	if (item.BackdropImageTags?.length > 0) {
+		return item.Id;
+	}
+	// Check for parent backdrop (for episodes/seasons)
+	if (item.ParentBackdropItemId && item.ParentBackdropImageTags?.length > 0) {
+		return item.ParentBackdropItemId;
+	}
+	return null;
+};
+
+// Check if item has a Primary image and return the item ID to use
+export const getPrimaryImageId = (item) => {
+	if (!item) return null;
+	// Item has its own Primary image
+	if (item.ImageTags?.Primary) {
+		return item.Id;
+	}
+	// Episode without image - use series image
+	if (item.Type === 'Episode' && item.SeriesId && item.SeriesPrimaryImageTag) {
+		return item.SeriesId;
+	}
+	// Season without image - use series image
+	if (item.Type === 'Season' && item.SeriesId && item.SeriesPrimaryImageTag) {
+		return item.SeriesId;
+	}
+	return null;
+};
+
+// Check if item has any usable image
+export const hasImage = (item, imageType = 'Primary') => {
+	if (!item) return false;
+	if (imageType === 'Primary') {
+		return !!(item.ImageTags?.Primary || (item.SeriesId && item.SeriesPrimaryImageTag));
+	}
+	if (imageType === 'Backdrop') {
+		return !!(item.BackdropImageTags?.length > 0 || (item.ParentBackdropItemId && item.ParentBackdropImageTags?.length > 0));
+	}
+	return !!item.ImageTags?.[imageType];
 };
