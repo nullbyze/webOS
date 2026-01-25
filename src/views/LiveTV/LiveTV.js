@@ -9,12 +9,22 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 
 import css from './LiveTV.module.less';
 
-const LiveTV = ({onPlayChannel}) => {
+const LiveTV = ({onPlayChannel, onBack}) => {
 	const {api, serverUrl} = useAuth();
 	const [channels, setChannels] = useState([]);
 	const [selectedChannel, setSelectedChannel] = useState(null);
 	const [currentProgram, setCurrentProgram] = useState(null);
 	const [isLoading, setIsLoading] = useState(true);
+
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			if (e.keyCode === 461 || e.keyCode === 27) {
+				onBack?.();
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [onBack]);
 
 	useEffect(() => {
 		const loadChannels = async () => {

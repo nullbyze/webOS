@@ -28,6 +28,16 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, ...rest}) => {
 	const [error, setError] = useState(null);
 
 	useEffect(() => {
+		const handleKeyDown = (e) => {
+			if (e.keyCode === 461 || e.keyCode === 27) {
+				onClose?.();
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [onClose]);
+
+	useEffect(() => {
 		if (!mediaId || !mediaType) return;
 
 		const loadDetails = async () => {

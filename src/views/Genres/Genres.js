@@ -168,15 +168,20 @@ const Genres = ({onSelectGenre, onBack}) => {
 		setShowLibraryModal(false);
 	}, []);
 
-	const handlePopupKeyDown = useCallback((ev) => {
-		const keyCode = ev.keyCode;
-		if (keyCode === 461 || keyCode === 27) {
-			ev.preventDefault();
-			ev.stopPropagation();
-			setShowSortModal(false);
-			setShowLibraryModal(false);
-		}
-	}, []);
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			if (e.keyCode === 461 || e.keyCode === 27) {
+				if (showSortModal || showLibraryModal) {
+					setShowSortModal(false);
+					setShowLibraryModal(false);
+				} else {
+					onBack?.();
+				}
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [showSortModal, showLibraryModal, onBack]);
 
 	const handleSortSelect = useCallback((ev) => {
 		const key = ev.currentTarget?.dataset?.sortKey;
@@ -298,7 +303,6 @@ const Genres = ({onSelectGenre, onBack}) => {
 				position="center"
 				scrimType="translucent"
 				noAutoDismiss
-				onKeyDown={handlePopupKeyDown}
 			>
 				<div className={css.popupContent}>
 					<div className={css.modalTitle}>Sort By</div>
@@ -322,7 +326,6 @@ const Genres = ({onSelectGenre, onBack}) => {
 				position="center"
 				scrimType="translucent"
 				noAutoDismiss
-				onKeyDown={handlePopupKeyDown}
 			>
 				<div className={css.popupContent}>
 					<div className={css.modalTitle}>Select Library</div>

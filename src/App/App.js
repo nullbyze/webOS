@@ -80,22 +80,20 @@ const AppContent = (props) => {
 		}
 	}, [panelHistory, panelIndex]);
 
-	// Global back button handler
 	useEffect(() => {
 		const handleKeyDown = (e) => {
-			// webOS back button (461) or Escape key (27)
 			if (e.keyCode === 461 || e.keyCode === 27) {
-				// Don't handle back if we're on Login or Browse (root)
-				if (panelIndex !== PANELS.LOGIN && panelIndex !== PANELS.BROWSE) {
-					e.preventDefault();
-					e.stopPropagation();
-					handleBack();
+				if (panelIndex === PANELS.BROWSE || panelIndex === PANELS.LOGIN) {
+					return;
 				}
+				e.preventDefault();
+				e.stopPropagation();
+				handleBack();
 			}
 		};
 
-		document.addEventListener('keydown', handleKeyDown);
-		return () => document.removeEventListener('keydown', handleKeyDown);
+		window.addEventListener('keydown', handleKeyDown, true);
+		return () => window.removeEventListener('keydown', handleKeyDown, true);
 	}, [panelIndex, handleBack]);
 
 	const handleLoggedIn = useCallback(() => {

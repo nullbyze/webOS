@@ -13,12 +13,22 @@ import css from './JellyseerrDiscover.module.less';
 
 const SpottableCard = Spottable('div');
 
-const JellyseerrDiscover = ({onSelectItem, onOpenRequests}) => {
+const JellyseerrDiscover = ({onSelectItem, onOpenRequests, onBack}) => {
 	const {isAuthenticated} = useJellyseerr();
 	const [movies, setMovies] = useState([]);
 	const [tvShows, setTvShows] = useState([]);
 	const [trending, setTrending] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
+
+	useEffect(() => {
+		const handleKeyDown = (e) => {
+			if (e.keyCode === 461 || e.keyCode === 27) {
+				onBack?.();
+			}
+		};
+		document.addEventListener('keydown', handleKeyDown);
+		return () => document.removeEventListener('keydown', handleKeyDown);
+	}, [onBack]);
 
 	useEffect(() => {
 		const loadData = async () => {
