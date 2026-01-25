@@ -139,6 +139,64 @@ export const trending = async () => {
 	return request('/discover/trending');
 };
 
+export const trendingMovies = async (page = 1) => {
+	return request(`/discover/movies?page=${page}`);
+};
+
+export const trendingTv = async (page = 1) => {
+	return request(`/discover/tv?page=${page}`);
+};
+
+export const upcomingMovies = async (page = 1) => {
+	return request(`/discover/movies/upcoming?page=${page}`);
+};
+
+export const upcomingTv = async (page = 1) => {
+	return request(`/discover/tv/upcoming?page=${page}`);
+};
+
+export const getGenreSliderMovies = async () => {
+	return request('/discover/genreslider/movie');
+};
+
+export const getGenreSliderTv = async () => {
+	return request('/discover/genreslider/tv');
+};
+
+export const discoverByGenre = async (mediaType, genreId, page = 1) => {
+	const endpoint = mediaType === 'movie' ? 'movies' : 'tv';
+	return request(`/discover/${endpoint}?genre=${genreId}&page=${page}`);
+};
+
+export const discoverByNetwork = async (networkId, page = 1) => {
+	return request(`/discover/tv?network=${networkId}&page=${page}`);
+};
+
+export const discoverByStudio = async (studioId, page = 1) => {
+	return request(`/discover/movies?studio=${studioId}&page=${page}`);
+};
+
+export const discoverByKeyword = async (mediaType, keywordId, page = 1) => {
+	const endpoint = mediaType === 'movie' ? 'movies' : 'tv';
+	return request(`/discover/${endpoint}?keywords=${keywordId}&page=${page}`);
+};
+
+export const getMovieRecommendations = async (movieId, page = 1) => {
+	return request(`/movie/${movieId}/recommendations?page=${page}`);
+};
+
+export const getTvRecommendations = async (tvId, page = 1) => {
+	return request(`/tv/${tvId}/recommendations?page=${page}`);
+};
+
+export const getMovieSimilar = async (movieId, page = 1) => {
+	return request(`/movie/${movieId}/similar?page=${page}`);
+};
+
+export const getTvSimilar = async (tvId, page = 1) => {
+	return request(`/tv/${tvId}/similar?page=${page}`);
+};
+
 export const search = async (query, page = 1) => {
 	return request(`/search?query=${encodeURIComponent(query)}&page=${page}`);
 };
@@ -217,6 +275,20 @@ export default {
 	discover,
 	discoverTv,
 	trending,
+	trendingMovies,
+	trendingTv,
+	upcomingMovies,
+	upcomingTv,
+	getGenreSliderMovies,
+	getGenreSliderTv,
+	discoverByGenre,
+	discoverByNetwork,
+	discoverByStudio,
+	discoverByKeyword,
+	getMovieRecommendations,
+	getTvRecommendations,
+	getMovieSimilar,
+	getTvSimilar,
 	search,
 	getMovie,
 	getTv,

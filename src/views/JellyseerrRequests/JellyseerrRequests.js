@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useState, memo} from 'react';
 import {Row, Column} from '@enact/ui/Layout';
 import {Panel, Header} from '@enact/sandstone/Panels';
 import Spinner from '@enact/sandstone/Spinner';
@@ -29,6 +29,71 @@ const MEDIA_STATUS_LABELS = {
 	4: 'Partially Available',
 	5: 'Available'
 };
+
+// Memoized request item component to avoid arrow functions in JSX props
+const RequestItem = memo(function RequestItem({request, index, onSelect, onCancel}) {
+	const media = request.media;
+	const posterUrl = media?.posterPath
+		? jellyseerrApi.getImageUrl(media.posterPath, 'w185')
+		: null;
+
+	const handleClick = useCallback(() => {
+		onSelect(request);
+	}, [request, onSelect]);
+
+	const handleCancelClick = useCallback((e) => {
+		onCancel(request.id, e);
+	}, [request.id, onCancel]);
+
+	return (
+		<SpottableRow
+			className={css.requestItem}
+			data-spotlight-id={`request-${index}`}
+			onClick={handleClick}
+		>
+			{posterUrl && (
+				<Image src={posterUrl} className={css.poster} sizing="fill" />
+			)}
+			<Column className={css.requestInfo}>
+				<BodyText className={css.title}>
+					{media?.title || media?.name || 'Unknown'}
+				</BodyText>
+				<Row className={css.meta}>
+					<span className={css.type}>
+						{media?.mediaType === 'movie' ? 'Movie' : 'TV Show'}
+					</span>
+					<span
+						className={css.status}
+						data-status={request.status}
+					>
+						{STATUS_LABELS[request.status] || 'Unknown'}
+					</span>
+					{media?.status && (
+						<span
+							className={css.mediaStatus}
+							data-media-status={media.status}
+						>
+							{MEDIA_STATUS_LABELS[media.status]}
+						</span>
+					)}
+				</Row>
+				<BodyText className={css.date}>
+					Requested: {new Date(request.createdAt).toLocaleDateString()}
+				</BodyText>
+			</Column>
+			{request.status === 1 && (
+				<Button
+					className={css.cancelBtn}
+					size="small"
+					icon="trash"
+					onClick={handleCancelClick}
+				>
+					Cancel
+				</Button>
+			)}
+		</SpottableRow>
+	);
+});
 
 const JellyseerrRequests = ({onSelectItem, onClose, ...rest}) => {
 	const {isAuthenticated} = useJellyseerr();
@@ -92,6 +157,11 @@ const JellyseerrRequests = ({onSelectItem, onClose, ...rest}) => {
 		}
 	}, [loadRequests]);
 
+	const handleTabSelect = useCallback(({index}) => {
+		const filters = ['all', 'pending', 'approved', 'available'];
+		setFilter(filters[index]);
+	}, []);
+
 	const filteredRequests = requests.filter(r => {
 		if (filter === 'all') return true;
 		if (filter === 'pending') return r.status === 1;
@@ -104,59 +174,14 @@ const JellyseerrRequests = ({onSelectItem, onClose, ...rest}) => {
 		const request = filteredRequests[index];
 		if (!request) return null;
 
-		const media = request.media;
-		const posterUrl = media?.posterPath
-			? jellyseerrApi.getImageUrl(media.posterPath, 'w185')
-			: null;
-
 		return (
-			<SpottableRow
+			<RequestItem
 				key={request.id}
-				className={css.requestItem}
-				data-spotlight-id={`request-${index}`}
-				onClick={() => handleSelect(request)}
-			>
-				{posterUrl && (
-					<Image src={posterUrl} className={css.poster} sizing="fill" />
-				)}
-				<Column className={css.requestInfo}>
-					<BodyText className={css.title}>
-						{media?.title || media?.name || 'Unknown'}
-					</BodyText>
-					<Row className={css.meta}>
-						<span className={css.type}>
-							{media?.mediaType === 'movie' ? 'Movie' : 'TV Show'}
-						</span>
-						<span
-							className={css.status}
-							data-status={request.status}
-						>
-							{STATUS_LABELS[request.status] || 'Unknown'}
-						</span>
-						{media?.status && (
-							<span
-								className={css.mediaStatus}
-								data-media-status={media.status}
-							>
-								{MEDIA_STATUS_LABELS[media.status]}
-							</span>
-						)}
-					</Row>
-					<BodyText className={css.date}>
-						Requested: {new Date(request.createdAt).toLocaleDateString()}
-					</BodyText>
-				</Column>
-				{request.status === 1 && (
-					<Button
-						className={css.cancelBtn}
-						size="small"
-						icon="trash"
-						onClick={(e) => handleCancel(request.id, e)}
-					>
-						Cancel
-					</Button>
-				)}
-			</SpottableRow>
+				request={request}
+				index={index}
+				onSelect={handleSelect}
+				onCancel={handleCancel}
+			/>
 		);
 	}, [filteredRequests, handleSelect, handleCancel]);
 
@@ -209,10 +234,7 @@ const JellyseerrRequests = ({onSelectItem, onClose, ...rest}) => {
 				type="compact"
 			/>
 			<TabLayout
-				onSelect={({index}) => {
-					const filters = ['all', 'pending', 'approved', 'available'];
-					setFilter(filters[index]);
-				}}
+				onSelect={handleTabSelect}
 			>
 				<Tab title="All">
 					{renderContent()}

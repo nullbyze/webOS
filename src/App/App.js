@@ -20,6 +20,8 @@ import Recordings from '../views/Recordings';
 import JellyseerrDiscover from '../views/JellyseerrDiscover';
 import JellyseerrDetails from '../views/JellyseerrDetails';
 import JellyseerrRequests from '../views/JellyseerrRequests';
+import JellyseerrBrowse from '../views/JellyseerrBrowse';
+import JellyseerrPerson from '../views/JellyseerrPerson';
 
 import css from './App.module.less';
 
@@ -39,7 +41,9 @@ const PANELS = {
 	JELLYSEERR_DETAILS: 12,
 	JELLYSEERR_REQUESTS: 13,
 	GENRE_BROWSE: 14,
-	RECORDINGS: 15
+	RECORDINGS: 15,
+	JELLYSEERR_BROWSE: 16,
+	JELLYSEERR_PERSON: 17
 };
 
 const AppContent = (props) => {
@@ -53,6 +57,8 @@ const AppContent = (props) => {
 	const [playingItem, setPlayingItem] = useState(null);
 	const [panelHistory, setPanelHistory] = useState([]);
 	const [jellyseerrItem, setJellyseerrItem] = useState(null);
+	const [jellyseerrBrowse, setJellyseerrBrowse] = useState(null);
+	const [jellyseerrPerson, setJellyseerrPerson] = useState(null);
 	const [authChecked, setAuthChecked] = useState(false);
 
 	// Update panel when auth state is determined
@@ -192,6 +198,31 @@ const AppContent = (props) => {
 		navigateTo(PANELS.JELLYSEERR_DETAILS);
 	}, [navigateTo]);
 
+	const handleSelectJellyseerrGenre = useCallback((genreId, genreName, mediaType) => {
+		setJellyseerrBrowse({browseType: 'genre', item: {id: genreId, name: genreName}, mediaType});
+		navigateTo(PANELS.JELLYSEERR_BROWSE);
+	}, [navigateTo]);
+
+	const handleSelectJellyseerrStudio = useCallback((studioId, studioName) => {
+		setJellyseerrBrowse({browseType: 'studio', item: {id: studioId, name: studioName}, mediaType: 'movie'});
+		navigateTo(PANELS.JELLYSEERR_BROWSE);
+	}, [navigateTo]);
+
+	const handleSelectJellyseerrNetwork = useCallback((networkId, networkName) => {
+		setJellyseerrBrowse({browseType: 'network', item: {id: networkId, name: networkName}, mediaType: 'tv'});
+		navigateTo(PANELS.JELLYSEERR_BROWSE);
+	}, [navigateTo]);
+
+	const handleSelectJellyseerrKeyword = useCallback((keyword, mediaType) => {
+		setJellyseerrBrowse({browseType: 'keyword', item: keyword, mediaType});
+		navigateTo(PANELS.JELLYSEERR_BROWSE);
+	}, [navigateTo]);
+
+	const handleSelectJellyseerrPerson = useCallback((personId, personName) => {
+		setJellyseerrPerson({id: personId, name: personName});
+		navigateTo(PANELS.JELLYSEERR_PERSON);
+	}, [navigateTo]);
+
 	// Show loading screen while auth state is being determined
 	if (isLoading || !authChecked) {
 		return <div className={css.loading} />;
@@ -269,6 +300,9 @@ const AppContent = (props) => {
 				return (
 					<JellyseerrDiscover
 						onSelectItem={handleSelectJellyseerrItem}
+						onSelectGenre={handleSelectJellyseerrGenre}
+						onSelectStudio={handleSelectJellyseerrStudio}
+						onSelectNetwork={handleSelectJellyseerrNetwork}
 						onOpenRequests={handleOpenJellyseerrRequests}
 						onBack={handleBack}
 					/>
@@ -278,6 +312,9 @@ const AppContent = (props) => {
 					<JellyseerrDetails
 						mediaType={jellyseerrItem?.mediaType}
 						mediaId={jellyseerrItem?.mediaId}
+						onSelectItem={handleSelectJellyseerrItem}
+						onSelectPerson={handleSelectJellyseerrPerson}
+						onSelectKeyword={handleSelectJellyseerrKeyword}
 						onClose={handleBack}
 					/>
 				);
@@ -286,6 +323,25 @@ const AppContent = (props) => {
 					<JellyseerrRequests
 						onSelectItem={handleSelectJellyseerrItem}
 						onClose={handleBack}
+					/>
+				);
+			case PANELS.JELLYSEERR_BROWSE:
+				return (
+					<JellyseerrBrowse
+						browseType={jellyseerrBrowse?.browseType}
+						item={jellyseerrBrowse?.item}
+						mediaType={jellyseerrBrowse?.mediaType}
+						onSelectItem={handleSelectJellyseerrItem}
+						onBack={handleBack}
+					/>
+				);
+			case PANELS.JELLYSEERR_PERSON:
+				return (
+					<JellyseerrPerson
+						personId={jellyseerrPerson?.id}
+						personName={jellyseerrPerson?.name}
+						onSelectItem={handleSelectJellyseerrItem}
+						onBack={handleBack}
 					/>
 				);
 			default:

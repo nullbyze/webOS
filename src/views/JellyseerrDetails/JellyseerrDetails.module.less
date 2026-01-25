@@ -1,11 +1,21 @@
-.backdrop {
-	position: absolute;
+.container {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	background: #111827;
+	color: #ffffff;
+}
+
+// Backdrop Section - 400dp height like Android TV
+.backdropSection {
+	position: fixed;
 	top: 0;
 	left: 0;
-	right: 0;
-	height: 60vh;
-	z-index: -1;
+	width: 100%;
+	height: 400px;
 	overflow: hidden;
+	z-index: 0;
 }
 
 .backdropImage {
@@ -18,172 +28,726 @@
 	position: absolute;
 	top: 0;
 	left: 0;
-	right: 0;
-	bottom: 0;
+	width: 100%;
+	height: 100%;
 	background: linear-gradient(
 		to bottom,
-		rgba(0, 0, 0, 0.4) 0%,
-		rgba(0, 0, 0, 0.8) 60%,
-		rgba(0, 0, 0, 1) 100%
+		rgba(17, 24, 39, 0.3) 0%,
+		rgba(17, 24, 39, 0.85) 70%,
+		#111827 100%
 	);
 }
 
-.content {
-	padding: 2rem;
+// Main Content
+.mainContent {
 	position: relative;
 	z-index: 1;
-
-	> * + * {
-		margin-left: 2rem;
-	}
+	height: 100%;
+	overflow-y: auto;
+	padding: 16px 60px 24px 60px;
 }
 
-.poster {
-	width: 300px;
-	height: 450px;
+// Header Wrapper - Poster + Title side by side
+.headerWrapper {
+	display: flex;
+	gap: 32px;
+	margin-bottom: 24px;
+	padding-top: 60px;
+}
+
+// Poster - 208x312 like Android TV
+.posterContainer {
+	flex-shrink: 0;
+	width: 208px;
+}
+
+.posterImage {
+	width: 100%;
+	height: 312px;
+	object-fit: cover;
 	border-radius: 8px;
-	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
-.info {
-	padding: 1rem;
-
-	> * + * {
-		margin-top: 1rem;
-	}
+.posterPlaceholder {
+	width: 100%;
+	height: 312px;
+	background: #1f2937;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 64px;
+	color: #4b5563;
 }
 
-.title {
-	font-size: 2.5rem;
-	font-weight: bold;
-	margin: 0;
+// Title Section
+.titleSection {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: flex-end;
+	padding-bottom: 8px;
+	padding-left: 24px;
 }
 
-.year {
+// Title
+.mediaTitle {
+	font-size: 42px;
+	font-weight: 700;
+	margin: 0 0 12px 0;
+	color: #ffffff;
+	line-height: 1.1;
+}
+
+.mediaYear {
 	font-weight: normal;
 	opacity: 0.7;
 }
 
-.tagline {
-	font-style: italic;
-	opacity: 0.8;
-	font-size: 1.2rem;
-}
-
-.meta {
-	align-items: center;
-
-	> * + * {
-		margin-left: 2rem;
-	}
-}
-
-.rating {
-	color: #f5c518;
-	font-weight: bold;
-}
-
-.runtime,
-.seasons {
-	opacity: 0.8;
-}
-
+// Status Badge - Combined HD/4K status with all color variants
 .statusBadge {
 	display: inline-block;
-	padding: 0.5rem 1rem;
-	border-radius: 4px;
-	font-weight: bold;
-	font-size: 0.9rem;
+	padding: 6px 12px;
+	border-radius: 6px;
+	font-size: 14px;
+	font-weight: 600;
 	text-transform: uppercase;
+	margin-bottom: 12px;
 	width: fit-content;
-
-	&[data-status="2"] {
-		background: #f5a623;
-		color: #000;
-	}
-
-	&[data-status="3"] {
-		background: #3b82f6;
-		color: #fff;
-	}
-
-	&[data-status="4"] {
-		background: #8b5cf6;
-		color: #fff;
-	}
-
-	&[data-status="5"] {
-		background: #10b981;
-		color: #fff;
-	}
 }
 
-.genres {
+// Status badge colors matching Android TV MediaDetailsFragment
+.badgegreen {
+	background: rgba(34, 197, 94, 0.2);
+	color: #22c55e;
+	border: 2px solid #22c55e;
+}
+
+.badgeyellow {
+	background: rgba(234, 179, 8, 0.2);
+	color: #eab308;
+	border: 2px solid #eab308;
+}
+
+.badgeindigo {
+	background: rgba(99, 102, 241, 0.2);
+	color: #6366f1;
+	border: 2px solid #6366f1;
+}
+
+.badgepurple {
+	background: rgba(168, 85, 247, 0.2);
+	color: #a855f7;
+	border: 2px solid #a855f7;
+}
+
+.badgered {
+	background: rgba(239, 68, 68, 0.2);
+	color: #ef4444;
+	border: 2px solid #ef4444;
+}
+
+.badgegray {
+	background: rgba(107, 114, 128, 0.2);
+	color: #9ca3af;
+	border: 2px solid #6b7280;
+}
+
+.badgemixed {
+	background: rgba(99, 102, 241, 0.15);
+	color: #d1d5db;
+	border: 2px solid #6366f1;
+}
+
+// Metadata Row
+.metadataRow {
+	display: flex;
+	align-items: center;
 	flex-wrap: wrap;
-	margin: -0.25rem;
+	gap: 8px;
+	margin-bottom: 8px;
+	font-size: 18px;
+	color: #d1d5db;
+}
 
-	> * {
-		margin: 0.25rem;
+.metadataItem {
+	display: flex;
+	align-items: center;
+
+	&:not(:last-child)::after {
+		content: '•';
+		margin-left: 8px;
+		color: rgba(255, 255, 255, 0.4);
 	}
 }
 
-.genre {
-	background: rgba(255, 255, 255, 0.1);
-	padding: 0.25rem 0.75rem;
-	border-radius: 16px;
-	font-size: 0.9rem;
+// Genres Row
+.genresRow {
+	font-size: 16px;
+	color: #9ca3af;
+	margin-bottom: 8px;
+}
+
+// Tagline
+.tagline {
+	font-size: 16px;
+	font-style: italic;
+	color: #9ca3af;
+	margin: 0;
+}
+
+// Overview Section - 2 columns like Android TV
+.overviewSection {
+	display: flex;
+	gap: 32px;
+	margin-bottom: 32px;
+}
+
+.overviewLeft {
+	flex: 2;
+}
+
+.overviewHeading {
+	font-size: 22px;
+	font-weight: 700;
+	color: #d1d5db;
+	margin: 0 0 12px 0;
 }
 
 .overview {
-	font-size: 1.1rem;
+	font-size: 16px;
 	line-height: 1.6;
-	max-width: 800px;
+	color: #9ca3af;
+	margin: 0 0 24px 0;
 }
 
-.actions {
-	margin-top: 1rem;
+// Media Facts - Right sidebar like Android TV
+.mediaFacts {
+	width: 320px;
+	flex-shrink: 0;
+}
 
-	> * + * {
-		margin-left: 1rem;
+.factRow {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 10px 16px;
+	border: 1px solid #374151;
+	border-bottom: none;
+
+	&:last-child {
+		border-bottom: 1px solid #374151;
 	}
 }
 
-.available {
-	color: #10b981;
-	font-weight: bold;
+.factRowFirst {
+	border-radius: 8px 8px 0 0;
 }
 
-.error {
-	padding: 2rem;
+.factRowLast {
+	border-radius: 0 0 8px 8px;
+}
 
-	> * + * {
-		margin-top: 1rem;
+.factLabel {
+	font-size: 14px;
+	font-weight: 600;
+	color: #d1d5db;
+}
+
+.factValue {
+	font-size: 14px;
+	color: #9ca3af;
+	text-align: right;
+}
+
+// Action Buttons - Horizontal row like Android TV
+.actionButtons {
+	display: flex;
+	gap: 48px;
+	flex-wrap: wrap;
+	margin-top: 24px;
+}
+
+.btnWrapper {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+}
+
+.btnAction {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 80px;
+	height: 60px;
+	background: rgba(255, 255, 255, 0.1);
+	border: 2px solid rgba(255, 255, 255, 0.2);
+	border-radius: 10px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	outline: none;
+
+	&:focus {
+		background: #ffffff;
+		transform: scale(1.1);
+		border-color: #ffffff;
+
+		.btnIcon {
+			filter: brightness(0);
+		}
 	}
 }
 
+.btnIcon {
+	font-size: 28px;
+	transition: filter 0.2s ease;
+}
+
+.btnLabel {
+	display: block;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.2;
+	color: rgba(255, 255, 255, 0.8);
+	max-width: 100px;
+}
+
+.btnDisabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+
+	&:focus {
+		transform: none;
+		background: rgba(255, 255, 255, 0.1);
+		border-color: rgba(255, 255, 255, 0.2);
+
+		.btnIcon {
+			filter: none;
+		}
+	}
+}
+
+// Section Title
 .sectionTitle {
-	font-size: 1.5rem;
-	font-weight: bold;
-	margin-bottom: 0.5rem;
+	font-size: 24px;
+	font-weight: 700;
+	margin: 0 0 16px 0;
+	color: #ffffff;
 }
 
-.cast {
-	margin-top: 2rem;
+// Cast Section
+.castSection {
+	margin-bottom: 32px;
 }
 
 .castList {
-	> * + * {
-		margin-left: 0.5rem;
+	display: flex;
+	gap: 20px;
+	overflow-x: auto;
+	padding-bottom: 12px;
+	scrollbar-width: none;
+
+	&::-webkit-scrollbar {
+		display: none;
 	}
 }
 
-.castMember {
-	background: rgba(255, 255, 255, 0.05);
-	border-radius: 4px;
+.castCard {
+	flex-shrink: 0;
+	width: 130px;
+	text-align: center;
+	cursor: pointer;
+	transition: all 0.2s;
+	outline: none;
+	padding: 8px;
+	border-radius: 8px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+
+	&:focus {
+		transform: scale(1.1);
+		background: #374151;
+
+		.castPhoto {
+			border-color: #ffffff;
+		}
+	}
 }
 
-.season {
+.castPhotoContainer {
+	width: 100px;
+	height: 100px;
+	border-radius: 50%;
+	overflow: hidden;
+	margin-bottom: 8px;
+	background: #1f2937;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.castPhoto {
+	width: 100px;
+	height: 100px;
+	min-width: 100px;
+	min-height: 100px;
+	object-fit: cover;
+	border: 2px solid transparent;
+	border-radius: 50%;
+	transition: border-color 0.2s;
+}
+
+.castPhotoPlaceholder {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 36px;
+	color: #6b7280;
+	background: #1f2937;
+}
+
+.castName {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 0 0 4px 0;
+	color: #ffffff;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.castCharacter {
+	font-size: 12px;
+	color: #9ca3af;
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.recommendationsSection {
+	margin-bottom: 32px;
+	padding: 16px 0;
+	overflow: visible;
+}
+
+.rowContainer {
+	display: flex;
+	overflow-x: auto;
+	overflow-y: visible;
+	padding: 16px 8px;
+	scrollbar-width: none;
+
+	&::-webkit-scrollbar {
+		display: none;
+	}
+
+	> * + * {
+		margin-left: 24px;
+	}
+}
+
+.recommendationCard {
+	flex-shrink: 0;
+	width: 200px;
+	cursor: pointer;
+	transition: transform 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+	outline: none;
+
+	&:focus {
+		transform: scale(1.08);
+		z-index: 10;
+
+		.recommendationPoster {
+			border-color: #ffffff;
+		}
+	}
+}
+
+.recommendationPoster {
+	width: 100%;
+	height: 300px;
+	object-fit: cover;
+	border-radius: 8px;
+	border: 3px solid transparent;
+	transition: border-color 0.2s ease;
+}
+
+.recommendationNoPoster {
+	width: 100%;
+	height: 300px;
+	background: #1f2937;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 48px;
+	color: #4b5563;
+}
+
+.recommendationTitle {
+	padding: 8px 4px;
+	font-size: 14px;
+	font-weight: 500;
+	color: #ffffff;
+	text-align: center;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.similarSection {
+	margin-bottom: 32px;
+	padding: 16px 0;
+	overflow: visible;
+}
+
+.keywordsSection {
+	margin-bottom: 32px;
+}
+
+.keywordsList {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.keywordTag {
+	display: inline-block;
+	padding: 10px 20px;
+	background: #374151;
+	border-radius: 100px;
+	font-size: 14px;
+	color: #ffffff;
+	cursor: pointer;
+	transition: all 0.2s;
+	outline: none;
+
+	&:focus {
+		background: #4b5563;
+		transform: scale(1.05);
+	}
+}
+
+// Seasons Section
+.seasonsSection {
+	margin-bottom: 32px;
+}
+
+.seasonsList {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.seasonItem {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px 16px;
 	background: rgba(255, 255, 255, 0.05);
-	border-radius: 4px;
-	margin-bottom: 0.5rem;
+	border-radius: 8px;
+}
+
+.seasonName {
+	font-size: 16px;
+	font-weight: 500;
+}
+
+.seasonEpisodes {
+	font-size: 14px;
+	color: #9ca3af;
+}
+
+// Quality Selection Popup
+.qualityPopup {
+	:global(.Popup_popup) {
+		background: #1f2937 !important;
+		border-radius: 16px;
+		padding: 24px;
+	}
+}
+
+.qualityPopupContent {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	min-width: 300px;
+}
+
+.qualityPopupTitle {
+	font-size: 24px;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0;
+}
+
+.qualityPopupSubtitle {
+	font-size: 16px;
+	color: #9ca3af;
+	margin: 0;
+}
+
+.qualityButtons {
+	display: flex;
+	gap: 16px;
+	width: 100%;
+}
+
+.qualityButton {
+	flex: 1;
+	padding: 16px 24px;
+	font-size: 18px;
+	font-weight: 600;
+	background: rgba(99, 102, 241, 0.2);
+	border: 2px solid #6366f1;
+	border-radius: 12px;
+	color: #ffffff;
+	cursor: pointer;
+	transition: all 0.2s;
+
+	&:focus {
+		background: #6366f1;
+		transform: scale(1.05);
+	}
+}
+
+.qualityButtonDisabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+
+	&:focus {
+		transform: none;
+		background: rgba(99, 102, 241, 0.2);
+	}
+}
+
+.qualityCancelButton {
+	padding: 12px 32px;
+	font-size: 16px;
+	background: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	border-radius: 8px;
+	color: #9ca3af;
+	cursor: pointer;
+	transition: all 0.2s;
+
+	&:focus {
+		background: rgba(255, 255, 255, 0.2);
+	}
+}
+
+// Cancel Request Popup
+.cancelPopup {
+	:global(.Popup_popup) {
+		background: #1f2937 !important;
+		border-radius: 16px;
+		padding: 24px;
+	}
+}
+
+.cancelPopupContent {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	min-width: 300px;
+	max-width: 400px;
+}
+
+.cancelPopupTitle {
+	font-size: 24px;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0;
+}
+
+.cancelPopupDescription {
+	font-size: 16px;
+	color: #d1d5db;
+	margin: 0;
+	text-align: center;
+}
+
+.cancelButtons {
+	display: flex;
+	gap: 16px;
+	width: 100%;
+}
+
+.cancelConfirmButton {
+	flex: 1;
+	padding: 14px 24px;
+	font-size: 16px;
+	font-weight: 600;
+	background: rgba(239, 68, 68, 0.2);
+	border: 2px solid #ef4444;
+	border-radius: 12px;
+	color: #ef4444;
+	cursor: pointer;
+	transition: all 0.2s;
+
+	&:focus {
+		background: #ef4444;
+		color: #ffffff;
+		transform: scale(1.05);
+	}
+}
+
+.cancelKeepButton {
+	flex: 1;
+	padding: 14px 24px;
+	font-size: 16px;
+	font-weight: 600;
+	background: rgba(255, 255, 255, 0.1);
+	border: 2px solid rgba(255, 255, 255, 0.2);
+	border-radius: 12px;
+	color: #ffffff;
+	cursor: pointer;
+	transition: all 0.2s;
+
+	&:focus {
+		background: rgba(255, 255, 255, 0.2);
+		transform: scale(1.05);
+	}
+}
+
+// Error State
+.error {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: calc(100% - 80px);
+	margin-top: 80px;
+	font-size: 24px;
+	color: #888;
+	text-align: center;
+	gap: 20px;
+}
+
+.errorButton {
+	padding: 12px 24px;
+	background: rgba(255, 255, 255, 0.1);
+	border: 2px solid rgba(255, 255, 255, 0.2);
+	border-radius: 8px;
+	font-size: 18px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+
+	&:focus {
+		background: #ffffff;
+		color: #000;
+		transform: scale(1.05);
+	}
 }
