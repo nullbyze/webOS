@@ -199,6 +199,21 @@ export const api = {
 	getRandomItem: (includeTypes = 'Movie,Series') =>
 		request(`/Items?UserId=${currentUser}&IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=1&Fields=PrimaryImageAspectRatio,Overview`),
 
+	getRandomItems: (contentType = 'both', limit = 10) => {
+		let includeTypes;
+		switch (contentType) {
+			case 'movies':
+				includeTypes = 'Movie';
+				break;
+			case 'tv':
+				includeTypes = 'Series';
+				break;
+			default:
+				includeTypes = 'Movie,Series';
+		}
+		return request(`/Users/${currentUser}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres&HasBackdrop=true`);
+	},
+
 	// Get all movies and series for genres page
 	getAllItems: (limit = 10000) =>
 		request(`/Users/${currentUser}/Items?IncludeItemTypes=Movie,Series&Recursive=true&Fields=Genres,PrimaryImageAspectRatio,ProductionYear&SortBy=SortName&SortOrder=Ascending&Limit=${limit}&ExcludeItemTypes=BoxSet`),

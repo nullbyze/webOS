@@ -79,6 +79,18 @@ const CAROUSEL_SPEED_OPTIONS = [
 	{value: 0, label: 'Disabled'}
 ];
 
+const FEATURED_CONTENT_TYPE_OPTIONS = [
+	{value: 'both', label: 'Movies & TV Shows'},
+	{value: 'movies', label: 'Movies Only'},
+	{value: 'tv', label: 'TV Shows Only'}
+];
+
+const FEATURED_ITEM_COUNT_OPTIONS = [
+	{value: 5, label: '5 items'},
+	{value: 10, label: '10 items'},
+	{value: 15, label: '15 items'}
+];
+
 const BLUR_OPTIONS = [
 	{value: 0, label: 'Off'},
 	{value: 10, label: 'Light'},
@@ -207,6 +219,18 @@ const Settings = ({onBack, onLogout}) => {
 		const nextIndex = (currentIndex + 1) % CAROUSEL_SPEED_OPTIONS.length;
 		updateSetting('carouselSpeed', CAROUSEL_SPEED_OPTIONS[nextIndex].value);
 	}, [settings.carouselSpeed, updateSetting]);
+
+	const cycleFeaturedContentType = useCallback(() => {
+		const currentIndex = FEATURED_CONTENT_TYPE_OPTIONS.findIndex(o => o.value === settings.featuredContentType);
+		const nextIndex = (currentIndex + 1) % FEATURED_CONTENT_TYPE_OPTIONS.length;
+		updateSetting('featuredContentType', FEATURED_CONTENT_TYPE_OPTIONS[nextIndex].value);
+	}, [settings.featuredContentType, updateSetting]);
+
+	const cycleFeaturedItemCount = useCallback(() => {
+		const currentIndex = FEATURED_ITEM_COUNT_OPTIONS.findIndex(o => o.value === settings.featuredItemCount);
+		const nextIndex = (currentIndex + 1) % FEATURED_ITEM_COUNT_OPTIONS.length;
+		updateSetting('featuredItemCount', FEATURED_ITEM_COUNT_OPTIONS[nextIndex].value);
+	}, [settings.featuredItemCount, updateSetting]);
 
 	const cycleBackdropBlurHome = useCallback(() => {
 		const currentIndex = BLUR_OPTIONS.findIndex(o => o.value === settings.backdropBlurHome);
@@ -376,6 +400,16 @@ const Settings = ({onBack, onLogout}) => {
 		return option?.label || '8 seconds';
 	};
 
+	const getFeaturedContentTypeLabel = () => {
+		const option = FEATURED_CONTENT_TYPE_OPTIONS.find(o => o.value === settings.featuredContentType);
+		return option?.label || 'Movies & TV Shows';
+	};
+
+	const getFeaturedItemCountLabel = () => {
+		const option = FEATURED_ITEM_COUNT_OPTIONS.find(o => o.value === settings.featuredItemCount);
+		return option?.label || '10 items';
+	};
+
 	const getBackdropBlurLabel = (value) => {
 		const option = BLUR_OPTIONS.find(o => o.value === value);
 		return option?.label || 'Medium';
@@ -478,8 +512,14 @@ const Settings = ({onBack, onLogout}) => {
 				)}
 			</div>
 			<div className={css.settingsGroup}>
-				<h2>Carousel</h2>
-				{renderSettingItem('Featured Carousel Speed', 'Time between carousel slides',
+				<h2>Featured Carousel</h2>
+				{renderSettingItem('Content Type', 'Type of content to display in featured carousel',
+					getFeaturedContentTypeLabel(), cycleFeaturedContentType, 'setting-featuredContentType'
+				)}
+				{renderSettingItem('Item Count', 'Number of items in featured carousel',
+					getFeaturedItemCountLabel(), cycleFeaturedItemCount, 'setting-featuredItemCount'
+				)}
+				{renderSettingItem('Carousel Speed', 'Time between carousel slides',
 					getCarouselSpeedLabel(), cycleCarouselSpeed, 'setting-carouselSpeed'
 				)}
 			</div>

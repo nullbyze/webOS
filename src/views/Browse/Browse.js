@@ -12,7 +12,6 @@ import css from './Browse.module.less';
 
 const FOCUS_DELAY_MS = 100;
 const BACKDROP_DEBOUNCE_MS = 150;
-const FEATURED_ITEMS_LIMIT = 10;
 const FEATURED_GENRES_LIMIT = 3;
 const DETAIL_GENRES_LIMIT = 2;
 const TRANSITION_DELAY_MS = 450;
@@ -137,11 +136,12 @@ const Browse = ({
 	useEffect(() => {
 		const loadData = async () => {
 			try {
-				const [libResult, resumeItems, nextUp, userConfig] = await Promise.all([
+				const [libResult, resumeItems, nextUp, userConfig, randomItems] = await Promise.all([
 					api.getLibraries(),
 					api.getResumeItems(),
 					api.getNextUp(),
-					api.getUserConfiguration().catch(() => null)
+					api.getUserConfiguration().catch(() => null),
+					api.getRandomItems(settings.featuredContentType, settings.featuredItemCount)
 				]);
 
 				const libs = libResult.Items || [];
@@ -223,9 +223,9 @@ const Browse = ({
 
 				setAllRowData(rowData);
 
-				const allLatest = rowData.filter(r => r.isLatestRow).flatMap(r => r.items);
-				if (allLatest.length > 0) {
-					const featuredWithLogos = allLatest.slice(0, FEATURED_ITEMS_LIMIT).map(item => ({
+				if (randomItems?.Items?.length > 0) {
+					const shuffled = [...randomItems.Items].sort(() => Math.random() - 0.5);
+					const featuredWithLogos = shuffled.map(item => ({
 						...item,
 						LogoUrl: getLogoUrl(serverUrl, item, {maxWidth: 800, quality: 90})
 					}));
@@ -239,7 +239,7 @@ const Browse = ({
 		};
 
 		loadData();
-	}, [api, serverUrl]);
+	}, [api, serverUrl, settings.featuredContentType, settings.featuredItemCount]);
 
 	useEffect(() => {
 		const carouselSpeed = settings.carouselSpeed || 8000;

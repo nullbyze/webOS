@@ -27,7 +27,9 @@ const defaultSettings = {
 	backdropBlurHome: 20,
 	backdropBlurDetail: 20,
 	carouselSpeed: 8000,
-	serverLogging: false
+	serverLogging: false,
+	featuredContentType: 'both',
+	featuredItemCount: 10
 };
 
 export {DEFAULT_HOME_ROWS};
