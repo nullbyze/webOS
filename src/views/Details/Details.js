@@ -4,6 +4,7 @@ import Spottable from '@enact/spotlight/Spottable';
 import {Scroller} from '@enact/sandstone/Scroller';
 import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
+import {useSettings} from '../../context/SettingsContext';
 import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {formatDuration, getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
@@ -25,6 +26,7 @@ const getResolutionName = (width, height) => {
 
 const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 	const {api, serverUrl} = useAuth();
+	const {settings} = useSettings();
 	const [item, setItem] = useState(null);
 	const [seasons, setSeasons] = useState([]);
 	const [episodes, setEpisodes] = useState([]);
@@ -317,7 +319,12 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 		<div className={css.page} onKeyDown={handleKeyDown}>
 			{backdropUrl && (
 				<div className={css.backdrop}>
-					<img src={backdropUrl} className={css.backdropImage} alt="" />
+					<img
+						src={backdropUrl}
+						className={css.backdropImage}
+						alt=""
+						style={{filter: settings.backdropBlurDetail > 0 ? `blur(${settings.backdropBlurDetail}px)` : 'none'}}
+					/>
 					<div className={css.backdropOverlay} />
 				</div>
 			)}

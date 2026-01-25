@@ -2,11 +2,14 @@ import {useCallback, useState, useEffect} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDecorator';
 import Spotlight from '@enact/spotlight';
+import Popup from '@enact/sandstone/Popup';
+import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
-import {useSettings} from '../../context/SettingsContext';
+import {useSettings, DEFAULT_HOME_ROWS} from '../../context/SettingsContext';
 import {useJellyseerr} from '../../context/JellyseerrContext';
 import {useDeviceInfo} from '../../hooks/useDeviceInfo';
 import JellyseerrIcon from '../../components/icons/JellyseerrIcon';
+import serverLogger from '../../services/serverLogger';
 
 import css from './Settings.module.less';
 
@@ -67,6 +70,23 @@ const BITRATE_OPTIONS = [
 	{value: 5000000, label: '5 Mbps'}
 ];
 
+const CAROUSEL_SPEED_OPTIONS = [
+	{value: 5000, label: '5 seconds'},
+	{value: 8000, label: '8 seconds'},
+	{value: 10000, label: '10 seconds'},
+	{value: 15000, label: '15 seconds'},
+	{value: 20000, label: '20 seconds'},
+	{value: 0, label: 'Disabled'}
+];
+
+const BLUR_OPTIONS = [
+	{value: 0, label: 'Off'},
+	{value: 10, label: 'Light'},
+	{value: 20, label: 'Medium'},
+	{value: 30, label: 'Strong'},
+	{value: 40, label: 'Heavy'}
+];
+
 const AUTH_METHODS = {
 	NONE: 'none',
 	JELLYFIN: 'jellyfin',
@@ -80,28 +100,25 @@ const Settings = ({onBack, onLogout}) => {
 	const jellyseerr = useJellyseerr();
 
 	const [activeCategory, setActiveCategory] = useState('general');
+	const [showHomeRowsModal, setShowHomeRowsModal] = useState(false);
+	const [tempHomeRows, setTempHomeRows] = useState([]);
 
-	// Jellyseerr state
 	const [jellyseerrUrl, setJellyseerrUrl] = useState(jellyseerr.serverUrl || '');
 	const [jellyseerrStatus, setJellyseerrStatus] = useState('');
 	const [authMethod, setAuthMethod] = useState(AUTH_METHODS.NONE);
 	const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-	// Jellyfin auth state
 	const [jellyfinPassword, setJellyfinPassword] = useState('');
 
-	// Local auth state
 	const [localEmail, setLocalEmail] = useState('');
 	const [localPassword, setLocalPassword] = useState('');
 
-	// Server info state
 	const [serverVersion, setServerVersion] = useState(null);
 
 	useEffect(() => {
 		Spotlight.focus('sidebar-general');
 	}, []);
 
-	// Fetch Jellyfin server version
 	useEffect(() => {
 		if (serverUrl && accessToken) {
 			fetch(`${serverUrl}/System/Info`, {
@@ -174,6 +191,9 @@ const Settings = ({onBack, onLogout}) => {
 
 	const toggleSetting = useCallback((key) => {
 		updateSetting(key, !settings[key]);
+		if (key === 'serverLogging') {
+			serverLogger.setEnabled(!settings[key]);
+		}
 	}, [settings, updateSetting]);
 
 	const cycleBitrate = useCallback(() => {
@@ -181,6 +201,88 @@ const Settings = ({onBack, onLogout}) => {
 		const nextIndex = (currentIndex + 1) % BITRATE_OPTIONS.length;
 		updateSetting('maxBitrate', BITRATE_OPTIONS[nextIndex].value);
 	}, [settings.maxBitrate, updateSetting]);
+
+	const cycleCarouselSpeed = useCallback(() => {
+		const currentIndex = CAROUSEL_SPEED_OPTIONS.findIndex(o => o.value === settings.carouselSpeed);
+		const nextIndex = (currentIndex + 1) % CAROUSEL_SPEED_OPTIONS.length;
+		updateSetting('carouselSpeed', CAROUSEL_SPEED_OPTIONS[nextIndex].value);
+	}, [settings.carouselSpeed, updateSetting]);
+
+	const cycleBackdropBlurHome = useCallback(() => {
+		const currentIndex = BLUR_OPTIONS.findIndex(o => o.value === settings.backdropBlurHome);
+		const nextIndex = (currentIndex + 1) % BLUR_OPTIONS.length;
+		updateSetting('backdropBlurHome', BLUR_OPTIONS[nextIndex].value);
+	}, [settings.backdropBlurHome, updateSetting]);
+
+	const cycleBackdropBlurDetail = useCallback(() => {
+		const currentIndex = BLUR_OPTIONS.findIndex(o => o.value === settings.backdropBlurDetail);
+		const nextIndex = (currentIndex + 1) % BLUR_OPTIONS.length;
+		updateSetting('backdropBlurDetail', BLUR_OPTIONS[nextIndex].value);
+	}, [settings.backdropBlurDetail, updateSetting]);
+
+	const openHomeRowsModal = useCallback(() => {
+		setTempHomeRows([...(settings.homeRows || DEFAULT_HOME_ROWS)].sort((a, b) => a.order - b.order));
+		setShowHomeRowsModal(true);
+	}, [settings.homeRows]);
+
+	const closeHomeRowsModal = useCallback(() => {
+		setShowHomeRowsModal(false);
+		setTempHomeRows([]);
+	}, []);
+
+	const saveHomeRows = useCallback(() => {
+		updateSetting('homeRows', tempHomeRows);
+		setShowHomeRowsModal(false);
+	}, [tempHomeRows, updateSetting]);
+
+	const resetHomeRows = useCallback(() => {
+		setTempHomeRows([...DEFAULT_HOME_ROWS]);
+	}, []);
+
+	const toggleHomeRow = useCallback((rowId) => {
+		setTempHomeRows(prev => prev.map(row =>
+			row.id === rowId ? {...row, enabled: !row.enabled} : row
+		));
+	}, []);
+
+	const moveHomeRowUp = useCallback((rowId) => {
+		setTempHomeRows(prev => {
+			const index = prev.findIndex(r => r.id === rowId);
+			if (index <= 0) return prev;
+			const newRows = [...prev];
+			const temp = newRows[index].order;
+			newRows[index].order = newRows[index - 1].order;
+			newRows[index - 1].order = temp;
+			return newRows.sort((a, b) => a.order - b.order);
+		});
+	}, []);
+
+	const moveHomeRowDown = useCallback((rowId) => {
+		setTempHomeRows(prev => {
+			const index = prev.findIndex(r => r.id === rowId);
+			if (index < 0 || index >= prev.length - 1) return prev;
+			const newRows = [...prev];
+			const temp = newRows[index].order;
+			newRows[index].order = newRows[index + 1].order;
+			newRows[index + 1].order = temp;
+			return newRows.sort((a, b) => a.order - b.order);
+		});
+	}, []);
+
+	const handleHomeRowToggleClick = useCallback((e) => {
+		const rowId = e.currentTarget.dataset.rowId;
+		if (rowId) toggleHomeRow(rowId);
+	}, [toggleHomeRow]);
+
+	const handleHomeRowUpClick = useCallback((e) => {
+		const rowId = e.currentTarget.dataset.rowId;
+		if (rowId) moveHomeRowUp(rowId);
+	}, [moveHomeRowUp]);
+
+	const handleHomeRowDownClick = useCallback((e) => {
+		const rowId = e.currentTarget.dataset.rowId;
+		if (rowId) moveHomeRowDown(rowId);
+	}, [moveHomeRowDown]);
 
 	const handleSelectJellyfinAuth = useCallback(() => {
 		setAuthMethod(AUTH_METHODS.JELLYFIN);
@@ -269,6 +371,16 @@ const Settings = ({onBack, onLogout}) => {
 		return option?.label || 'Auto';
 	};
 
+	const getCarouselSpeedLabel = () => {
+		const option = CAROUSEL_SPEED_OPTIONS.find(o => o.value === settings.carouselSpeed);
+		return option?.label || '8 seconds';
+	};
+
+	const getBackdropBlurLabel = (value) => {
+		const option = BLUR_OPTIONS.find(o => o.value === value);
+		return option?.label || 'Medium';
+	};
+
 	const renderSettingItem = (title, description, value, onClick, key) => (
 		<SpottableDiv
 			key={key}
@@ -306,6 +418,23 @@ const Settings = ({onBack, onLogout}) => {
 					'setting-clockDisplay'
 				)}
 			</div>
+			<div className={css.settingsGroup}>
+				<h2>Navigation Bar</h2>
+				{renderToggleItem('Show Shuffle Button', 'Show shuffle button in navigation bar', 'showShuffleButton')}
+				{renderToggleItem('Show Genres Button', 'Show genres button in navigation bar', 'showGenresButton')}
+				{renderToggleItem('Show Favorites Button', 'Show favorites button in navigation bar', 'showFavoritesButton')}
+			</div>
+			<div className={css.settingsGroup}>
+				<h2>Home Screen</h2>
+				{renderToggleItem('Merge Continue Watching & Next Up', 'Combine into a single row', 'mergeContinueWatchingNextUp')}
+				{renderSettingItem('Configure Home Rows', 'Customize which rows appear on home screen',
+					'Edit...', openHomeRowsModal, 'setting-homeRows'
+				)}
+			</div>
+			<div className={css.settingsGroup}>
+				<h2>Debugging</h2>
+				{renderToggleItem('Server Logging', 'Send logs to Jellyfin server for troubleshooting', 'serverLogging')}
+			</div>
 		</div>
 	);
 
@@ -337,6 +466,21 @@ const Settings = ({onBack, onLogout}) => {
 					settings.theme === 'dark' ? 'Dark' : 'Light',
 					() => updateSetting('theme', settings.theme === 'dark' ? 'light' : 'dark'),
 					'setting-theme'
+				)}
+			</div>
+			<div className={css.settingsGroup}>
+				<h2>Backdrop</h2>
+				{renderSettingItem('Home Backdrop Blur', 'Amount of blur on home screen backdrop',
+					getBackdropBlurLabel(settings.backdropBlurHome), cycleBackdropBlurHome, 'setting-backdropBlurHome'
+				)}
+				{renderSettingItem('Details Backdrop Blur', 'Amount of blur on details page backdrop',
+					getBackdropBlurLabel(settings.backdropBlurDetail), cycleBackdropBlurDetail, 'setting-backdropBlurDetail'
+				)}
+			</div>
+			<div className={css.settingsGroup}>
+				<h2>Carousel</h2>
+				{renderSettingItem('Featured Carousel Speed', 'Time between carousel slides',
+					getCarouselSpeedLabel(), cycleCarouselSpeed, 'setting-carouselSpeed'
 				)}
 			</div>
 		</div>
@@ -626,6 +770,79 @@ const Settings = ({onBack, onLogout}) => {
 		</div>
 	);
 
+	const renderHomeRowsModal = () => {
+		return (
+			<Popup
+				open={showHomeRowsModal}
+				onClose={closeHomeRowsModal}
+				position="center"
+				scrimType="translucent"
+				noAutoDismiss
+			>
+				<div className={css.popupContent}>
+					<h2 className={css.popupTitle}>Configure Home Rows</h2>
+					<p className={css.popupDescription}>
+						Enable/disable and reorder the rows that appear on your home screen.
+					</p>
+					<div className={css.homeRowsList}>
+						{tempHomeRows.map((row, index) => (
+							<div key={row.id} className={css.homeRowItem}>
+								<Button
+									className={css.homeRowToggle}
+									onClick={handleHomeRowToggleClick}
+									data-row-id={row.id}
+									size="small"
+								>
+									<span className={css.checkbox}>{row.enabled ? '☑' : '☐'}</span>
+									<span className={css.homeRowName}>{row.name}</span>
+								</Button>
+								<div className={css.homeRowControls}>
+									<Button
+										className={css.moveButton}
+										onClick={handleHomeRowUpClick}
+										data-row-id={row.id}
+										disabled={index === 0}
+										size="small"
+										icon="arrowlargeup"
+									/>
+									<Button
+										className={css.moveButton}
+										onClick={handleHomeRowDownClick}
+										data-row-id={row.id}
+										disabled={index === tempHomeRows.length - 1}
+										size="small"
+										icon="arrowlargedown"
+									/>
+								</div>
+							</div>
+						))}
+					</div>
+					<div className={css.popupButtons}>
+						<Button
+							onClick={resetHomeRows}
+							size="small"
+						>
+							Reset to Default
+						</Button>
+						<Button
+							onClick={closeHomeRowsModal}
+							size="small"
+						>
+							Cancel
+						</Button>
+						<Button
+							onClick={saveHomeRows}
+							size="small"
+							className={css.primaryButton}
+						>
+							Save
+						</Button>
+					</div>
+				</div>
+			</Popup>
+		);
+	};
+
 	const renderPanel = () => {
 		switch (activeCategory) {
 			case 'general': return renderGeneralPanel();
@@ -667,6 +884,8 @@ const Settings = ({onBack, onLogout}) => {
 			>
 				{renderPanel()}
 			</ContentContainer>
+
+			{renderHomeRowsModal()}
 		</div>
 	);
 };

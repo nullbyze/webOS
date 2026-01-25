@@ -130,8 +130,13 @@ export const api = {
 
 	getItem: (itemId) => request(`/Users/${currentUser}/Items/${itemId}`),
 
+	getUserConfiguration: () => request(`/Users/${currentUser}`),
+
 	getLatest: (libraryId, limit = 20) =>
-		request(`/Users/${currentUser}/Items/Latest?ParentId=${libraryId}&Limit=${limit}&Fields=Overview,Genres,OfficialRating,ImageTags,ParentLogoImageTag&ImageTypeLimit=1`),
+		request(`/Users/${currentUser}/Items/Latest?ParentId=${libraryId}&Limit=${limit}&Fields=Overview,Genres,OfficialRating,ImageTags,ParentLogoImageTag&ImageTypeLimit=1&GroupItems=true`),
+
+	getCollections: (limit = 50) =>
+		request(`/Users/${currentUser}/Items?IncludeItemTypes=BoxSet&Recursive=true&SortBy=SortName&SortOrder=Ascending&Limit=${limit}&Fields=PrimaryImageAspectRatio,ProductionYear`),
 
 	getResumeItems: (limit = 12) =>
 		request(`/Users/${currentUser}/Items/Resume?Limit=${limit}&MediaTypes=Video`),

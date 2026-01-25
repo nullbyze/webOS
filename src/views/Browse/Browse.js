@@ -1,7 +1,8 @@
-import {useState, useEffect, useCallback, useRef} from 'react';
+import {useState, useEffect, useCallback, useRef, useMemo} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import Spotlight from '@enact/spotlight';
 import {useAuth} from '../../context/AuthContext';
+import {useSettings} from '../../context/SettingsContext';
 import NavBar from '../../components/NavBar';
 import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -11,11 +12,13 @@ import css from './Browse.module.less';
 
 const FOCUS_DELAY_MS = 100;
 const BACKDROP_DEBOUNCE_MS = 150;
-const CAROUSEL_ROTATION_MS = 8000;
 const FEATURED_ITEMS_LIMIT = 10;
 const FEATURED_GENRES_LIMIT = 3;
 const DETAIL_GENRES_LIMIT = 2;
 const TRANSITION_DELAY_MS = 450;
+
+// Collection types to exclude from Latest Media rows
+const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
 
 const SpottableDiv = Spottable('div');
 const SpottableButton = Spottable('button');
@@ -31,7 +34,7 @@ const Browse = ({
 	onSwitchUser
 }) => {
 	const {api, serverUrl, isAuthenticated} = useAuth();
-	const [rows, setRows] = useState([]);
+	const {settings} = useSettings();
 	const [libraries, setLibraries] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredItems, setFeaturedItems] = useState([]);
@@ -40,9 +43,67 @@ const Browse = ({
 	const [browseMode, setBrowseMode] = useState('featured');
 	const [featuredFocused, setFeaturedFocused] = useState(false);
 	const [focusedItem, setFocusedItem] = useState(null);
+	const [allRowData, setAllRowData] = useState([]);
 	const mainContentRef = useRef(null);
 	const backdropTimeoutRef = useRef(null);
 	const pendingBackdropRef = useRef(null);
+
+	// Get enabled and sorted home rows from settings
+	const homeRowsConfig = useMemo(() => {
+		return [...(settings.homeRows || [])].sort((a, b) => a.order - b.order);
+	}, [settings.homeRows]);
+
+	// Filter rows based on enabled settings
+	const filteredRows = useMemo(() => {
+		const enabledRowIds = homeRowsConfig.filter(r => r.enabled).map(r => r.id);
+
+		// Handle merged Continue Watching + Next Up
+		if (settings.mergeContinueWatchingNextUp) {
+			const resumeRow = allRowData.find(r => r.id === 'resume');
+			const nextUpRow = allRowData.find(r => r.id === 'nextup');
+
+			// Filter out original resume and nextup rows
+			let result = allRowData.filter(r => r.id !== 'resume' && r.id !== 'nextup');
+
+			// Create merged row if either exists
+			if (resumeRow || nextUpRow) {
+				const mergedItems = [
+					...(resumeRow?.items || []),
+					...(nextUpRow?.items || [])
+				];
+				// Remove duplicates by Id
+				const uniqueItems = [...new Map(mergedItems.map(i => [i.Id, i])).values()];
+
+				if (uniqueItems.length > 0) {
+					// Check if resume or nextup is enabled
+					if (enabledRowIds.includes('resume') || enabledRowIds.includes('nextup')) {
+						result = [{
+							id: 'continue-nextup',
+							title: 'Continue Watching',
+							items: uniqueItems,
+							type: 'landscape'
+						}, ...result];
+					}
+				}
+			}
+
+				return result.filter(row =>
+				row.id === 'continue-nextup' ||
+				enabledRowIds.includes(row.id) ||
+				(row.isLatestRow && enabledRowIds.includes('latest-media'))
+			);
+		}
+
+		return allRowData.filter(row => {
+			if (row.id === 'resume' || row.id === 'nextup') {
+				return enabledRowIds.includes(row.id);
+			}
+			if (row.isLatestRow) {
+				return enabledRowIds.includes('latest-media');
+			}
+			return enabledRowIds.includes(row.id);
+		});
+	}, [allRowData, homeRowsConfig, settings.mergeContinueWatchingNextUp]);
 
 	useEffect(() => {
 		if (!isAuthenticated) {
@@ -57,33 +118,36 @@ const Browse = ({
 		}
 		const targetIndex = fromRowIndex - 1;
 		Spotlight.focus(`row-${targetIndex}`);
-		if (targetIndex === 0) {
-			const contentRows = document.querySelector('[data-element="content-rows"]');
-			if (contentRows) contentRows.scrollTop = 0;
+		const targetRow = document.querySelector(`[data-row-index="${targetIndex}"]`);
+		if (targetRow) {
+			targetRow.scrollIntoView({behavior: 'smooth', block: 'start'});
 		}
 	}, []);
 
 	const handleNavigateDown = useCallback((fromRowIndex) => {
 		const targetIndex = fromRowIndex + 1;
-		if (targetIndex >= rows.length) return;
+		if (targetIndex >= filteredRows.length) return;
 		Spotlight.focus(`row-${targetIndex}`);
 		const targetRow = document.querySelector(`[data-row-index="${targetIndex}"]`);
 		if (targetRow) {
 			targetRow.scrollIntoView({behavior: 'smooth', block: 'center'});
 		}
-	}, [rows.length]);
+	}, [filteredRows.length]);
 
 	useEffect(() => {
 		const loadData = async () => {
 			try {
-				const [libResult, resumeItems, nextUp] = await Promise.all([
+				const [libResult, resumeItems, nextUp, userConfig] = await Promise.all([
 					api.getLibraries(),
 					api.getResumeItems(),
-					api.getNextUp()
+					api.getNextUp(),
+					api.getUserConfiguration().catch(() => null)
 				]);
 
 				const libs = libResult.Items || [];
 				setLibraries(libs);
+
+				const latestItemsExcludes = userConfig?.Configuration?.LatestItemsExcludes || [];
 
 				const rowData = [];
 
@@ -105,24 +169,61 @@ const Browse = ({
 					});
 				}
 
-				for (const lib of libs) {
-					if (['movies', 'tvshows'].includes(lib.CollectionType)) {
-						const latest = await api.getLatest(lib.Id, 16);
-						if (latest?.length > 0) {
-							rowData.push({
-								id: lib.Id,
-								title: `Latest ${lib.Name}`,
-								items: latest,
-								library: lib,
-								type: 'portrait'
-							});
-						}
+				const eligibleLibraries = libs.filter(lib => {
+					if (EXCLUDED_COLLECTION_TYPES.includes(lib.CollectionType?.toLowerCase())) {
+						return false;
+					}
+					if (latestItemsExcludes.includes(lib.Id)) {
+						return false;
+					}
+					return true;
+				});
+
+				for (const lib of eligibleLibraries) {
+					const latest = await api.getLatest(lib.Id, 16);
+					if (latest?.length > 0) {
+						rowData.push({
+							id: `latest-${lib.Id}`,
+							title: `Latest in ${lib.Name}`,
+							items: latest,
+							library: lib,
+							type: 'portrait',
+							isLatestRow: true
+						});
 					}
 				}
 
-				setRows(rowData);
+				try {
+					const collectionsResult = await api.getCollections(20);
+					if (collectionsResult?.Items?.length > 0) {
+						rowData.push({
+							id: 'collections',
+							title: 'Collections',
+							items: collectionsResult.Items,
+							type: 'portrait'
+						});
+					}
+				} catch (e) {
+					console.warn('Failed to load collections:', e);
+				}
 
-				const allLatest = rowData.filter(r => r.library).flatMap(r => r.items);
+				if (libs.length > 0) {
+					rowData.push({
+						id: 'library-tiles',
+						title: 'My Media',
+						items: libs.map(lib => ({
+							...lib,
+							Type: 'CollectionFolder',
+							isLibraryTile: true
+						})),
+						type: 'landscape',
+						isLibraryRow: true
+					});
+				}
+
+				setAllRowData(rowData);
+
+				const allLatest = rowData.filter(r => r.isLatestRow).flatMap(r => r.items);
 				if (allLatest.length > 0) {
 					const featuredWithLogos = allLatest.slice(0, FEATURED_ITEMS_LIMIT).map(item => ({
 						...item,
@@ -141,14 +242,15 @@ const Browse = ({
 	}, [api, serverUrl]);
 
 	useEffect(() => {
-		if (featuredItems.length <= 1 || !featuredFocused) return;
+		const carouselSpeed = settings.carouselSpeed || 8000;
+		if (featuredItems.length <= 1 || !featuredFocused || carouselSpeed === 0) return;
 
 		const interval = setInterval(() => {
 			setCurrentFeaturedIndex((prev) => (prev + 1) % featuredItems.length);
-		}, CAROUSEL_ROTATION_MS);
+		}, carouselSpeed);
 
 		return () => clearInterval(interval);
-	}, [featuredItems.length, featuredFocused]);
+	}, [featuredItems.length, featuredFocused, settings.carouselSpeed]);
 
 	useEffect(() => {
 		let backdropId = null;
@@ -312,7 +414,12 @@ const Browse = ({
 		<div className={css.page}>
 			<div className={css.globalBackdrop}>
 				{backdropUrl && (
-					<img className={css.globalBackdropImage} src={backdropUrl} alt="" />
+					<img
+						className={css.globalBackdropImage}
+						src={backdropUrl}
+						alt=""
+						style={{filter: settings.backdropBlurHome > 0 ? `blur(${settings.backdropBlurHome}px)` : 'none'}}
+					/>
 				)}
 				<div className={css.globalBackdropOverlay} />
 			</div>
@@ -460,7 +567,7 @@ const Browse = ({
 					className={`${css.contentRows} ${browseMode === 'rows' ? css.rowsMode : ''}`}
 					data-element="content-rows"
 				>
-					{rows.map((row, index) => (
+					{filteredRows.map((row, index) => (
 						<MediaRow
 							key={row.id}
 							title={row.title}
@@ -475,7 +582,7 @@ const Browse = ({
 							onNavigateDown={handleNavigateDown}
 						/>
 					))}
-					{rows.length === 0 && (
+					{filteredRows.length === 0 && (
 						<div className={css.empty}>No content found</div>
 					)}
 				</div>

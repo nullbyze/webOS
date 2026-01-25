@@ -1,6 +1,14 @@
 import {createContext, useContext, useState, useEffect, useCallback} from 'react';
 import {getFromStorage, saveToStorage} from '../services/storage';
 
+const DEFAULT_HOME_ROWS = [
+	{id: 'resume', name: 'Continue Watching', enabled: true, order: 0},
+	{id: 'nextup', name: 'Next Up', enabled: true, order: 1},
+	{id: 'latest-media', name: 'Latest Media', enabled: true, order: 2},
+	{id: 'collections', name: 'Collections', enabled: false, order: 3},
+	{id: 'library-tiles', name: 'My Media', enabled: false, order: 4}
+];
+
 const defaultSettings = {
 	preferTranscode: false,
 	maxBitrate: 0,
@@ -10,8 +18,19 @@ const defaultSettings = {
 	skipIntro: true,
 	skipCredits: false,
 	autoPlay: true,
-	theme: 'dark'
+	theme: 'dark',
+	homeRows: DEFAULT_HOME_ROWS,
+	showShuffleButton: true,
+	showGenresButton: true,
+	showFavoritesButton: true,
+	mergeContinueWatchingNextUp: false,
+	backdropBlurHome: 20,
+	backdropBlurDetail: 20,
+	carouselSpeed: 8000,
+	serverLogging: false
 };
+
+export {DEFAULT_HOME_ROWS};
 
 const SettingsContext = createContext(null);
 
