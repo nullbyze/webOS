@@ -122,6 +122,89 @@ export const getUser = async () => {
 	return request('/auth/me');
 };
 
+export const PERMISSIONS = {
+	NONE: 0,
+	ADMIN: 2,
+	MANAGE_SETTINGS: 4,
+	MANAGE_USERS: 8,
+	MANAGE_REQUESTS: 16,
+	REQUEST: 32,
+	AUTO_APPROVE: 128,
+	REQUEST_4K: 1024,
+	REQUEST_4K_MOVIE: 2048,
+	REQUEST_4K_TV: 4096,
+	REQUEST_ADVANCED: 8192,
+	REQUEST_MOVIE: 262144,
+	REQUEST_TV: 524288
+};
+
+export const hasPermission = (userPermissions, permission) => {
+	if (!userPermissions) return false;
+	if ((userPermissions & PERMISSIONS.ADMIN) !== 0) return true;
+	return (userPermissions & permission) !== 0;
+};
+
+export const canRequest4k = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST_4K) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_4K_MOVIE) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_4K_TV);
+};
+
+export const canRequest4kMovies = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST_4K) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_4K_MOVIE);
+};
+
+export const canRequest4kTv = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST_4K) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_4K_TV);
+};
+
+export const canRequest = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_MOVIE) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_TV);
+};
+
+export const canRequestMovies = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_MOVIE);
+};
+
+export const canRequestTv = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST) ||
+		hasPermission(userPermissions, PERMISSIONS.REQUEST_TV);
+};
+
+export const hasAdvancedRequestPermission = (userPermissions) => {
+	return hasPermission(userPermissions, PERMISSIONS.REQUEST_ADVANCED) ||
+		hasPermission(userPermissions, PERMISSIONS.MANAGE_REQUESTS);
+};
+
+export const getSettings = async () => {
+	return request('/settings/main');
+};
+
+export const getBlacklist = async (page = 1) => {
+	return request(`/blacklist?take=20&skip=${(page - 1) * 20}`);
+};
+
+export const getRadarrServers = async () => {
+	return request('/service/radarr');
+};
+
+export const getRadarrServerDetails = async (serverId) => {
+	return request(`/service/radarr/${serverId}`);
+};
+
+export const getSonarrServers = async () => {
+	return request('/service/sonarr');
+};
+
+export const getSonarrServerDetails = async (serverId) => {
+	return request(`/service/sonarr/${serverId}`);
+};
+
 export const logout = async () => {
 	await request('/auth/logout', {method: 'POST'});
 	await clearCookies();
@@ -218,25 +301,41 @@ export const getRequests = async (filter = 'all', take = 20, skip = 0) => {
 };
 
 export const requestMovie = async (tmdbId, options = {}) => {
+	const body = {
+		mediaType: 'movie',
+		mediaId: tmdbId,
+		is4k: options.is4k || false
+	};
+
+	if (options.serverId != null) body.serverId = options.serverId;
+	if (options.profileId != null) body.profileId = options.profileId;
+	if (options.rootFolder != null) body.rootFolder = options.rootFolder;
+
 	return request('/request', {
 		method: 'POST',
-		body: {
-			mediaType: 'movie',
-			mediaId: tmdbId,
-			is4k: options.is4k || false
-		}
+		body
 	});
 };
 
 export const requestTv = async (tmdbId, options = {}) => {
+	const seasonsValue = Array.isArray(options.seasons)
+		? options.seasons
+		: (options.seasons || 'all');
+
+	const body = {
+		mediaType: 'tv',
+		mediaId: tmdbId,
+		is4k: options.is4k || false,
+		seasons: seasonsValue
+	};
+
+	if (options.serverId != null) body.serverId = options.serverId;
+	if (options.profileId != null) body.profileId = options.profileId;
+	if (options.rootFolder != null) body.rootFolder = options.rootFolder;
+
 	return request('/request', {
 		method: 'POST',
-		body: {
-			mediaType: 'tv',
-			mediaId: tmdbId,
-			is4k: options.is4k || false,
-			seasons: options.seasons || 'all'
-		}
+		body
 	});
 };
 
@@ -272,6 +371,21 @@ export default {
 	loginWithJellyfin,
 	logout,
 	getUser,
+	PERMISSIONS,
+	hasPermission,
+	canRequest,
+	canRequestMovies,
+	canRequestTv,
+	canRequest4k,
+	canRequest4kMovies,
+	canRequest4kTv,
+	hasAdvancedRequestPermission,
+	getSettings,
+	getBlacklist,
+	getRadarrServers,
+	getRadarrServerDetails,
+	getSonarrServers,
+	getSonarrServerDetails,
 	discover,
 	discoverTv,
 	trending,

@@ -5,7 +5,7 @@ import Spotlight from '@enact/spotlight';
 import Image from '@enact/sandstone/Image';
 import Popup from '@enact/sandstone/Popup';
 import Button from '@enact/sandstone/Button';
-import jellyseerrApi from '../../services/jellyseerrApi';
+import jellyseerrApi, {canRequestMovies, canRequestTv, canRequest4kMovies, canRequest4kTv, hasAdvancedRequestPermission} from '../../services/jellyseerrApi';
 import {useJellyseerr} from '../../context/JellyseerrContext';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import css from './JellyseerrDetails.module.less';
@@ -24,7 +24,6 @@ const KeywordsSectionContainer = SpotlightContainerDecorator({
 	enterTo: 'last-focused'
 }, 'div');
 
-// Status constants matching Android TV app
 const STATUS = {
 	UNKNOWN: 1,
 	PENDING: 2,
@@ -34,10 +33,33 @@ const STATUS = {
 	BLACKLISTED: 6
 };
 
-/**
- * Get combined status badge text and color matching Android TV MediaDetailsFragment
- * Handles all HD/4K status combinations
- */
+const REQUEST_STATUS = {
+	PENDING: 1,
+	APPROVED: 2,
+	DECLINED: 3,
+	AVAILABLE: 4
+};
+
+const getSeasonStatusLabel = (status) => {
+	switch (status) {
+		case REQUEST_STATUS.PENDING: return 'Pending';
+		case REQUEST_STATUS.APPROVED: return 'Processing';
+		case REQUEST_STATUS.DECLINED: return 'Declined';
+		case REQUEST_STATUS.AVAILABLE: return 'Available';
+		default: return null;
+	}
+};
+
+const getSeasonStatusColor = (status) => {
+	switch (status) {
+		case REQUEST_STATUS.PENDING: return 'yellow';
+		case REQUEST_STATUS.APPROVED: return 'indigo';
+		case REQUEST_STATUS.DECLINED: return 'red';
+		case REQUEST_STATUS.AVAILABLE: return 'green';
+		default: return 'gray';
+	}
+};
+
 const getStatusBadge = (hdStatus, status4k, hdDeclined, fourKDeclined) => {
 	// Check for declined states first
 	if (hdDeclined && fourKDeclined) return {text: 'DECLINED', color: 'red'};
@@ -121,7 +143,6 @@ const formatRuntime = (minutes) => {
 	return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 };
 
-// Memoized Cast Card component
 const CastCard = memo(({person, onSelect}) => {
 	const photoUrl = person.profilePath
 		? jellyseerrApi.getImageUrl(person.profilePath, 'w185')
@@ -146,7 +167,6 @@ const CastCard = memo(({person, onSelect}) => {
 	);
 });
 
-// Memoized Media Card component
 const MediaCard = memo(({item, onSelect}) => {
 	const posterUrl = jellyseerrApi.getImageUrl(item.posterPath || item.poster_path, 'w342');
 	const title = item.title || item.name;
@@ -167,7 +187,6 @@ const MediaCard = memo(({item, onSelect}) => {
 	);
 });
 
-// Memoized Keyword Tag component
 const KeywordTag = memo(({keyword, onSelect}) => {
 	const handleClick = useCallback(() => {
 		onSelect(keyword);
@@ -231,7 +250,6 @@ const HorizontalMediaRow = memo(({title, items, onSelect, rowIndex, onNavigateUp
 	);
 });
 
-// Quality Selection Popup - matches Android TV QualitySelectionDialog
 const QualitySelectionPopup = memo(({open, title, hdStatus, status4k, canRequestHd, canRequest4k, onSelect, onClose}) => {
 	const getButtonLabel = useCallback((is4k, currentStatus) => {
 		const quality = is4k ? '4K' : 'HD';
@@ -279,7 +297,324 @@ const QualitySelectionPopup = memo(({open, title, hdStatus, status4k, canRequest
 	);
 });
 
-// Cancel Request Confirmation Popup
+const SeasonSelectionContainer = SpotlightContainerDecorator({
+	enterTo: 'last-focused'
+}, 'div');
+
+const SeasonSelectionPopup = memo(({open, title, seasons, seasonStatusMap, onConfirm, onClose}) => {
+	const [selectedSeasons, setSelectedSeasons] = useState(new Set());
+
+	const availableSeasons = useMemo(() =>
+		(seasons || []).filter(s => s.seasonNumber > 0),
+	[seasons]);
+
+	const isSeasonUnavailable = useCallback((seasonNumber) => {
+		const status = seasonStatusMap?.get(seasonNumber);
+		return status != null && status !== REQUEST_STATUS.DECLINED;
+	}, [seasonStatusMap]);
+
+	useEffect(() => {
+		if (open) {
+			const initialSelection = new Set(
+				availableSeasons
+					.filter(s => !isSeasonUnavailable(s.seasonNumber))
+					.map(s => s.seasonNumber)
+			);
+			setSelectedSeasons(initialSelection);
+		}
+	}, [open, availableSeasons, isSeasonUnavailable]);
+
+	const allSelectableSeasons = useMemo(() =>
+		availableSeasons.filter(s => !isSeasonUnavailable(s.seasonNumber)),
+	[availableSeasons, isSeasonUnavailable]);
+
+	const allSelected = useMemo(() =>
+		allSelectableSeasons.length > 0 &&
+		allSelectableSeasons.every(s => selectedSeasons.has(s.seasonNumber)),
+	[allSelectableSeasons, selectedSeasons]);
+
+	const handleToggleSeason = useCallback((e) => {
+		const seasonNumber = parseInt(e.currentTarget.dataset.season, 10);
+		if (isNaN(seasonNumber)) return;
+		setSelectedSeasons(prev => {
+			const next = new Set(prev);
+			if (next.has(seasonNumber)) {
+				next.delete(seasonNumber);
+			} else {
+				next.add(seasonNumber);
+			}
+			return next;
+		});
+	}, []);
+
+	const handleToggleAll = useCallback(() => {
+		if (allSelected) {
+			setSelectedSeasons(new Set());
+		} else {
+			setSelectedSeasons(new Set(allSelectableSeasons.map(s => s.seasonNumber)));
+		}
+	}, [allSelected, allSelectableSeasons]);
+
+	const handleConfirm = useCallback(() => {
+		if (selectedSeasons.size > 0) {
+			onConfirm(Array.from(selectedSeasons).sort((a, b) => a - b));
+		}
+	}, [selectedSeasons, onConfirm]);
+
+	const canConfirm = selectedSeasons.size > 0;
+
+	return (
+		<Popup open={open} onClose={onClose} position="center" className={css.seasonPopup}>
+			<div className={css.seasonPopupContent}>
+				<h2 className={css.seasonPopupTitle}>Select Seasons</h2>
+				<p className={css.seasonPopupSubtitle}>{title}</p>
+
+				<SeasonSelectionContainer className={css.seasonsList} spotlightId="season-selection">
+					{/* Select All option */}
+					{allSelectableSeasons.length > 1 && (
+						<SpottableDiv
+							className={`${css.seasonCheckItem} ${allSelected ? css.seasonCheckItemSelected : ''}`}
+							onClick={handleToggleAll}
+						>
+							<div className={`${css.seasonCheckbox} ${allSelected ? css.seasonCheckboxChecked : ''}`}>
+								{allSelected && '✓'}
+							</div>
+							<span className={css.seasonCheckLabel}>Select All</span>
+						</SpottableDiv>
+					)}
+
+					{/* Individual seasons */}
+					{availableSeasons.map(season => {
+						const seasonStatus = seasonStatusMap?.get(season.seasonNumber);
+						const isUnavailable = isSeasonUnavailable(season.seasonNumber);
+						const isSelected = selectedSeasons.has(season.seasonNumber);
+						const statusLabel = getSeasonStatusLabel(seasonStatus);
+						const statusColor = getSeasonStatusColor(seasonStatus);
+
+						return (
+							<SpottableDiv
+								key={season.seasonNumber}
+								className={`${css.seasonCheckItem} ${isSelected ? css.seasonCheckItemSelected : ''} ${isUnavailable ? css.seasonCheckItemUnavailable : ''}`}
+								onClick={!isUnavailable ? handleToggleSeason : undefined}
+								data-season={season.seasonNumber}
+								disabled={isUnavailable}
+							>
+								<div className={`${css.seasonCheckbox} ${isSelected ? css.seasonCheckboxChecked : ''} ${isUnavailable ? css.seasonCheckboxDisabled : ''}`}>
+									{isSelected && !isUnavailable && '✓'}
+									{isUnavailable && '—'}
+								</div>
+								<div className={css.seasonCheckInfo}>
+									<span className={css.seasonCheckLabel}>{season.name || `Season ${season.seasonNumber}`}</span>
+									<span className={css.seasonCheckMeta}>
+										{season.episodeCount} episode{season.episodeCount !== 1 ? 's' : ''}
+									</span>
+								</div>
+								{statusLabel && (
+									<span className={`${css.seasonStatusBadge} ${css[`seasonStatus${statusColor}`]}`}>
+										{statusLabel}
+									</span>
+								)}
+							</SpottableDiv>
+						);
+					})}
+				</SeasonSelectionContainer>
+
+				<div className={css.seasonPopupButtons}>
+					<Button
+						className={`${css.seasonConfirmButton} ${!canConfirm ? css.seasonButtonDisabled : ''}`}
+						onClick={handleConfirm}
+						disabled={!canConfirm}
+					>
+						Request {selectedSeasons.size} Season{selectedSeasons.size !== 1 ? 's' : ''}
+					</Button>
+					<Button className={css.seasonCancelButton} onClick={onClose}>
+						Cancel
+					</Button>
+				</div>
+			</div>
+		</Popup>
+	);
+});
+
+const AdvancedOptionsContainer = SpotlightContainerDecorator({
+	enterTo: 'last-focused'
+}, 'div');
+
+const AdvancedOptionsPopup = memo(({open, title, servers, is4k, onConfirm, onClose}) => {
+	const [selectedServerId, setSelectedServerId] = useState(null);
+	const [serverDetails, setServerDetails] = useState(null);
+	const [loadingDetails, setLoadingDetails] = useState(false);
+	const [selectedProfileId, setSelectedProfileId] = useState(null);
+	const [selectedRootFolder, setSelectedRootFolder] = useState(null);
+
+	const availableServers = useMemo(() =>
+		(servers || []).filter(s => s.is4k === is4k),
+	[servers, is4k]);
+
+	useEffect(() => {
+		if (open && availableServers.length > 0) {
+			const defaultServer = availableServers[0];
+			setSelectedServerId(defaultServer.id);
+		}
+	}, [open, availableServers]);
+
+	useEffect(() => {
+		if (!selectedServerId || !open) return;
+
+		const loadServerDetails = async () => {
+			setLoadingDetails(true);
+			try {
+				const server = availableServers.find(s => s.id === selectedServerId);
+				if (!server) return;
+
+				const details = server.isRadarr !== false
+					? await jellyseerrApi.getRadarrServerDetails(selectedServerId)
+					: await jellyseerrApi.getSonarrServerDetails(selectedServerId);
+
+				setServerDetails(details);
+
+				if (details.profiles?.length > 0) {
+					const defaultProfile = details.profiles.find(p => p.id === details.activeProfileId) || details.profiles[0];
+					setSelectedProfileId(defaultProfile?.id);
+				}
+				if (details.rootFolders?.length > 0) {
+					const defaultFolder = details.rootFolders.find(f => f.path === details.activeDirectory) || details.rootFolders[0];
+					setSelectedRootFolder(defaultFolder?.path);
+				}
+			} catch (err) {
+				console.error('Failed to load server details:', err);
+			} finally {
+				setLoadingDetails(false);
+			}
+		};
+
+		loadServerDetails();
+	}, [selectedServerId, open, availableServers]);
+
+	useEffect(() => {
+		if (!open) {
+			setSelectedServerId(null);
+			setServerDetails(null);
+			setSelectedProfileId(null);
+			setSelectedRootFolder(null);
+		}
+	}, [open]);
+
+	const handleServerChange = useCallback((e) => {
+		setSelectedServerId(parseInt(e.currentTarget.dataset.serverid, 10));
+	}, []);
+
+	const handleProfileChange = useCallback((e) => {
+		setSelectedProfileId(parseInt(e.currentTarget.dataset.profileid, 10));
+	}, []);
+
+	const handleFolderChange = useCallback((e) => {
+		setSelectedRootFolder(e.currentTarget.dataset.folderpath);
+	}, []);
+
+	const handleConfirm = useCallback(() => {
+		onConfirm({
+			serverId: selectedServerId,
+			profileId: selectedProfileId,
+			rootFolder: selectedRootFolder
+		});
+	}, [selectedServerId, selectedProfileId, selectedRootFolder, onConfirm]);
+
+	const handleSkip = useCallback(() => {
+		onConfirm(null);
+	}, [onConfirm]);
+
+	const canConfirm = selectedServerId != null;
+
+	return (
+		<Popup open={open} onClose={onClose} position="center" className={css.advancedPopup}>
+			<div className={css.advancedPopupContent}>
+				<h2 className={css.advancedPopupTitle}>Request Options</h2>
+				<p className={css.advancedPopupSubtitle}>{title} ({is4k ? '4K' : 'HD'})</p>
+
+				{loadingDetails ? (
+					<div className={css.advancedLoading}>Loading server options...</div>
+				) : (
+					<AdvancedOptionsContainer className={css.advancedOptionsList} spotlightId="advanced-options">
+						{/* Server Selection (if multiple) */}
+						{availableServers.length > 1 && (
+							<div className={css.advancedOptionGroup}>
+								<label className={css.advancedOptionLabel}>Server</label>
+								<div className={css.advancedOptionButtons}>
+									{availableServers.map(server => (
+										<SpottableDiv
+											key={server.id}
+											className={`${css.advancedOptionBtn} ${selectedServerId === server.id ? css.advancedOptionBtnSelected : ''}`}
+											onClick={handleServerChange}
+											data-serverid={server.id}
+										>
+											{server.name}
+										</SpottableDiv>
+									))}
+								</div>
+							</div>
+						)}
+
+						{/* Quality Profile Selection */}
+						{serverDetails?.profiles?.length > 0 && (
+							<div className={css.advancedOptionGroup}>
+								<label className={css.advancedOptionLabel}>Quality Profile</label>
+								<div className={css.advancedOptionButtons}>
+									{serverDetails.profiles.map(profile => (
+										<SpottableDiv
+											key={profile.id}
+											className={`${css.advancedOptionBtn} ${selectedProfileId === profile.id ? css.advancedOptionBtnSelected : ''}`}
+											onClick={handleProfileChange}
+											data-profileid={profile.id}
+										>
+											{profile.name}
+										</SpottableDiv>
+									))}
+								</div>
+							</div>
+						)}
+
+						{/* Root Folder Selection */}
+						{serverDetails?.rootFolders?.length > 0 && (
+							<div className={css.advancedOptionGroup}>
+								<label className={css.advancedOptionLabel}>Download Location</label>
+								<div className={css.advancedOptionButtons}>
+									{serverDetails.rootFolders.map(folder => (
+										<SpottableDiv
+											key={folder.id}
+											className={`${css.advancedOptionBtn} ${selectedRootFolder === folder.path ? css.advancedOptionBtnSelected : ''}`}
+											onClick={handleFolderChange}
+											data-folderpath={folder.path}
+										>
+											{folder.path}
+										</SpottableDiv>
+									))}
+								</div>
+							</div>
+						)}
+					</AdvancedOptionsContainer>
+				)}
+
+				<div className={css.advancedPopupButtons}>
+					<Button
+						className={`${css.advancedConfirmButton} ${!canConfirm ? css.advancedButtonDisabled : ''}`}
+						onClick={handleConfirm}
+						disabled={!canConfirm || loadingDetails}
+					>
+						Continue with Options
+					</Button>
+					<Button className={css.advancedSkipButton} onClick={handleSkip}>
+						Use Defaults
+					</Button>
+					<Button className={css.advancedCancelButton} onClick={onClose}>
+						Cancel
+					</Button>
+				</div>
+			</div>
+		</Popup>
+	);
+});
+
 const CancelRequestPopup = memo(({open, pendingRequests, title, onConfirm, onClose}) => {
 	const description = useMemo(() => {
 		if (!pendingRequests || pendingRequests.length === 0) return '';
@@ -323,17 +658,30 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 	const [recommendations, setRecommendations] = useState([]);
 	const [similar, setSimilar] = useState([]);
 	const [showQualityPopup, setShowQualityPopup] = useState(false);
+	const [showSeasonPopup, setShowSeasonPopup] = useState(false);
+	const [showAdvancedPopup, setShowAdvancedPopup] = useState(false);
+	const [pendingIs4k, setPendingIs4k] = useState(false);
+	const [pendingSeasons, setPendingSeasons] = useState(null);
 	const [showCancelPopup, setShowCancelPopup] = useState(false);
+	const [userPermissions, setUserPermissions] = useState(null);
+	const [has4kServer, setHas4kServer] = useState(false);
+	const [hasHdServer, setHasHdServer] = useState(false);
+	const [servers, setServers] = useState([]);
 	const contentRef = useRef(null);
 
-	// Popup close handlers - must be defined before any early returns
 	const handleCloseQualityPopup = useCallback(() => setShowQualityPopup(false), []);
+	const handleCloseSeasonPopup = useCallback(() => setShowSeasonPopup(false), []);
+	const handleCloseAdvancedPopup = useCallback(() => setShowAdvancedPopup(false), []);
 	const handleCloseCancelPopup = useCallback(() => setShowCancelPopup(false), []);
 
 	useEffect(() => {
 		const handleKeyDown = (e) => {
 			if (e.keyCode === 461 || e.keyCode === 27) {
-				if (showQualityPopup) {
+				if (showAdvancedPopup) {
+					setShowAdvancedPopup(false);
+				} else if (showSeasonPopup) {
+					setShowSeasonPopup(false);
+				} else if (showQualityPopup) {
 					setShowQualityPopup(false);
 				} else if (showCancelPopup) {
 					setShowCancelPopup(false);
@@ -345,7 +693,7 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		};
 		document.addEventListener('keydown', handleKeyDown);
 		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, [onClose, onBack, showQualityPopup, showCancelPopup]);
+	}, [onClose, onBack, showQualityPopup, showSeasonPopup, showAdvancedPopup, showCancelPopup]);
 
 	useEffect(() => {
 		if (!mediaId || !mediaType) return;
@@ -354,12 +702,32 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 			setLoading(true);
 			setError(null);
 			try {
-				const data = mediaType === 'movie'
-					? await jellyseerrApi.getMovie(mediaId)
-					: await jellyseerrApi.getTv(mediaId);
+				const [data, userData, serversData] = await Promise.all([
+					mediaType === 'movie'
+						? jellyseerrApi.getMovie(mediaId)
+						: jellyseerrApi.getTv(mediaId),
+					jellyseerrApi.getUser().catch(() => null),
+					(mediaType === 'movie'
+						? jellyseerrApi.getRadarrServers()
+						: jellyseerrApi.getSonarrServers()
+					).catch(() => [])
+				]);
+
 				setDetails(data);
 
-				// Load recommendations and similar (3 pages each like Android TV)
+				if (userData?.permissions != null) {
+					setUserPermissions(userData.permissions);
+				}
+
+				const serversList = Array.isArray(serversData) ? serversData : [];
+				const serversWithType = serversList.map(s => ({
+					...s,
+					isRadarr: mediaType === 'movie'
+				}));
+				setServers(serversWithType);
+				setHas4kServer(serversList.some(s => s.is4k));
+				setHasHdServer(serversList.some(s => !s.is4k));
+
 				const loadMultiplePages = async (fetcher) => {
 					const allResults = [];
 					for (let page = 1; page <= 3; page++) {
@@ -402,7 +770,6 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		}
 	}, [loading, details]);
 
-	// Memoized status values
 	const hdStatus = useMemo(() => details?.mediaInfo?.status ?? null, [details]);
 	const status4k = useMemo(() => details?.mediaInfo?.status4k ?? null, [details]);
 	const requests = useMemo(() => details?.mediaInfo?.requests ?? [], [details]);
@@ -410,31 +777,67 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 	const fourKDeclined = useMemo(() => requests.some(r => r.is4k && r.status === 3), [requests]);
 	const pendingRequests = useMemo(() => requests.filter(r => r.status === STATUS.PENDING), [requests]);
 
-	// Check if HD/4K are requestable (matching Android TV logic)
+	const getSeasonStatusMap = useCallback((is4k) => {
+		const statusMap = new Map();
+		if (!requests || requests.length === 0) return statusMap;
+
+		requests.forEach(req => {
+			if (req.is4k === is4k) {
+				req.seasons?.forEach(seasonReq => {
+					const existingStatus = statusMap.get(seasonReq.seasonNumber);
+					const newStatus = seasonReq.status;
+					if (!existingStatus ||
+						(existingStatus === REQUEST_STATUS.DECLINED && newStatus !== REQUEST_STATUS.DECLINED) ||
+						(newStatus === REQUEST_STATUS.AVAILABLE) ||
+						(newStatus === REQUEST_STATUS.APPROVED && existingStatus === REQUEST_STATUS.PENDING)) {
+						statusMap.set(seasonReq.seasonNumber, newStatus);
+					}
+				});
+			}
+		});
+		return statusMap;
+	}, [requests]);
+
+	const seasonStatusMapHd = useMemo(() => getSeasonStatusMap(false), [getSeasonStatusMap]);
+	const seasonStatusMap4k = useMemo(() => getSeasonStatusMap(true), [getSeasonStatusMap]);
+
+	const isBlacklisted = useMemo(() =>
+		hdStatus === STATUS.BLACKLISTED || status4k === STATUS.BLACKLISTED,
+	[hdStatus, status4k]);
+
 	const canRequestHd = useMemo(() => {
-		if (!isAuthenticated) return false;
+		if (!isAuthenticated || isBlacklisted) return false;
 		const blocked = isStatusBlocked(hdStatus) || hdDeclined;
-		return !blocked;
-	}, [isAuthenticated, hdStatus, hdDeclined]);
+		if (blocked) return false;
+		const userCanHd = mediaType === 'movie'
+			? canRequestMovies(userPermissions)
+			: canRequestTv(userPermissions);
+		return userCanHd && hasHdServer;
+	}, [isAuthenticated, isBlacklisted, hdStatus, hdDeclined, userPermissions, hasHdServer, mediaType]);
 
 	const canRequest4k = useMemo(() => {
-		if (!isAuthenticated) return false;
+		if (!isAuthenticated || isBlacklisted) return false;
 		const blocked = isStatusBlocked(status4k) || fourKDeclined;
-		return !blocked;
-	}, [isAuthenticated, status4k, fourKDeclined]);
+		if (blocked) return false;
+		const userCan4k = mediaType === 'movie'
+			? canRequest4kMovies(userPermissions)
+			: canRequest4kTv(userPermissions);
+		return userCan4k && has4kServer;
+	}, [isAuthenticated, isBlacklisted, status4k, fourKDeclined, userPermissions, has4kServer, mediaType]);
 
 	const canRequestAny = canRequestHd || canRequest4k;
 
-	// Status badge
+	const hasAdvanced = useMemo(() =>
+		hasAdvancedRequestPermission(userPermissions),
+	[userPermissions]);
+
 	const statusBadge = useMemo(() =>
 		getStatusBadge(hdStatus, status4k, hdDeclined, fourKDeclined),
 	[hdStatus, status4k, hdDeclined, fourKDeclined]
 	);
 
-	// Request button label (matches Android TV getStatusLabel)
 	const requestButtonLabel = useMemo(() => {
 		if (!canRequestAny) {
-			// Return status label when nothing requestable
 			if (hdDeclined && fourKDeclined) return 'Declined';
 			if (fourKDeclined) return '4K Declined';
 			if (hdDeclined) return 'HD Declined';
@@ -450,23 +853,31 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 			if (hdStatus === STATUS.BLACKLISTED || status4k === STATUS.BLACKLISTED) return 'Blacklisted';
 			return 'Unavailable';
 		}
-		// Can request
 		if (hdStatus === STATUS.PARTIALLY_AVAILABLE || status4k === STATUS.PARTIALLY_AVAILABLE) return 'Request More';
 		return 'Request';
 	}, [canRequestAny, hdStatus, status4k, hdDeclined, fourKDeclined]);
 
-	const handleRequest = useCallback(async (is4K = false) => {
+	const handleRequest = useCallback(async (is4K = false, seasons = null, advancedOptions = null) => {
 		if (requesting) return;
 
 		setShowQualityPopup(false);
+		setShowSeasonPopup(false);
+		setShowAdvancedPopup(false);
 		setRequesting(true);
 		try {
+			const options = {
+				is4k: is4K,
+				...(advancedOptions || {})
+			};
+
 			if (mediaType === 'movie') {
-				await jellyseerrApi.requestMovie(mediaId, {is4k: is4K});
+				await jellyseerrApi.requestMovie(mediaId, options);
 			} else {
-				await jellyseerrApi.requestTv(mediaId, {is4k: is4K});
+				await jellyseerrApi.requestTv(mediaId, {
+					...options,
+					seasons: seasons || 'all'
+				});
 			}
-			// Refresh details to update status
 			const updated = mediaType === 'movie'
 				? await jellyseerrApi.getMovie(mediaId)
 				: await jellyseerrApi.getTv(mediaId);
@@ -479,17 +890,61 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		}
 	}, [mediaId, mediaType, requesting]);
 
+	const proceedWithRequest = useCallback((is4K, seasons = null) => {
+		if (hasAdvanced) {
+			setPendingIs4k(is4K);
+			setPendingSeasons(seasons);
+			setShowAdvancedPopup(true);
+		} else {
+			handleRequest(is4K, seasons);
+		}
+	}, [hasAdvanced, handleRequest]);
+
+	const handleQualitySelect = useCallback((is4K) => {
+		setShowQualityPopup(false);
+		if (mediaType === 'tv' && details?.seasons?.length > 0) {
+			setPendingIs4k(is4K);
+			setShowSeasonPopup(true);
+		} else {
+			proceedWithRequest(is4K);
+		}
+	}, [mediaType, details?.seasons, proceedWithRequest]);
+
+	const handleSeasonConfirm = useCallback((selectedSeasons) => {
+		proceedWithRequest(pendingIs4k, selectedSeasons);
+	}, [pendingIs4k, proceedWithRequest]);
+
+	const handleAdvancedConfirm = useCallback((advancedOptions) => {
+		handleRequest(pendingIs4k, pendingSeasons, advancedOptions);
+	}, [pendingIs4k, pendingSeasons, handleRequest]);
+
 	const handleRequestClick = useCallback(() => {
 		if (!canRequestAny) return;
-		// If both HD and 4K are requestable, show quality selection
+
+		if (!hasHdServer && !has4kServer) {
+			const mediaTypeName = mediaType === 'movie' ? 'movies' : 'TV shows';
+			setError(`No Radarr/Sonarr server configured for ${mediaTypeName} in Jellyseerr`);
+			return;
+		}
+
 		if (canRequestHd && canRequest4k) {
 			setShowQualityPopup(true);
 		} else if (canRequest4k) {
-			handleRequest(true);
+			if (mediaType === 'tv' && details?.seasons?.length > 0) {
+				setPendingIs4k(true);
+				setShowSeasonPopup(true);
+			} else {
+				proceedWithRequest(true);
+			}
 		} else if (canRequestHd) {
-			handleRequest(false);
+			if (mediaType === 'tv' && details?.seasons?.length > 0) {
+				setPendingIs4k(false);
+				setShowSeasonPopup(true);
+			} else {
+				proceedWithRequest(false);
+			}
 		}
-	}, [canRequestAny, canRequestHd, canRequest4k, handleRequest]);
+	}, [canRequestAny, canRequestHd, canRequest4k, proceedWithRequest, hasHdServer, has4kServer, mediaType, details?.seasons]);
 
 	const handleCancelRequestClick = useCallback(() => {
 		if (pendingRequests.length > 0) {
@@ -500,10 +955,9 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 	const handleCancelConfirm = useCallback(async () => {
 		setShowCancelPopup(false);
 		try {
-			for (const req of pendingRequests) {
+					for (const req of pendingRequests) {
 				await jellyseerrApi.cancelRequest(req.id);
 			}
-			// Refresh details
 			const updated = mediaType === 'movie'
 				? await jellyseerrApi.getMovie(mediaId)
 				: await jellyseerrApi.getTv(mediaId);
@@ -515,7 +969,6 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 	}, [pendingRequests, mediaId, mediaType]);
 
 	const handleTrailer = useCallback(() => {
-		// Search YouTube for trailer like Android TV app does
 		const mediaTitle = details?.title || details?.name || 'Unknown';
 		const mediaYear = details?.releaseDate?.substring(0, 4) || details?.firstAirDate?.substring(0, 4) || '';
 		const searchQuery = `${mediaTitle} ${mediaYear} official trailer`;
@@ -524,7 +977,6 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 	}, [details]);
 
 	const handlePlay = useCallback(() => {
-		// Navigate to play the content in Jellyfin/Moonfin
 		if (details?.mediaInfo?.jellyfinMediaId) {
 			console.log('Play content:', details.mediaInfo.jellyfinMediaId);
 		}
@@ -543,12 +995,10 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		onSelectKeyword?.(keyword, mediaType);
 	}, [onSelectKeyword, mediaType]);
 
-	// Handle action buttons key navigation
 	const handleActionButtonsKeyDown = useCallback((e) => {
-		if (e.keyCode === 40) { // Down arrow
+		if (e.keyCode === 40) {
 			e.preventDefault();
 			e.stopPropagation();
-			// Try to focus cast section first, then recommendations, then similar
 			const castFocused = Spotlight.focus('cast-section');
 			if (!castFocused) {
 				const recFocused = Spotlight.focus('details-row-0');
@@ -559,10 +1009,8 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		}
 	}, []);
 
-	// Row navigation handlers (like Browse/MediaRow)
 	const handleRowNavigateUp = useCallback((fromRowIndex) => {
 		if (fromRowIndex === 0) {
-			// Try cast section first, then action buttons
 			const castFocused = Spotlight.focus('cast-section');
 			if (!castFocused) {
 				Spotlight.focus('action-buttons');
@@ -571,7 +1019,6 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 			const targetIndex = fromRowIndex - 1;
 			const focused = Spotlight.focus(`details-row-${targetIndex}`);
 			if (!focused) {
-				// If row doesn't exist, try cast or action buttons
 				const castFocused = Spotlight.focus('cast-section');
 				if (!castFocused) {
 					Spotlight.focus('action-buttons');
@@ -582,10 +1029,8 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 
 	const handleRowNavigateDown = useCallback((fromRowIndex) => {
 		const targetIndex = fromRowIndex + 1;
-		// Try to focus next row, if it fails try keywords section
 		const focused = Spotlight.focus(`details-row-${targetIndex}`);
 		if (!focused) {
-			// Try keywords or seasons section
 			const keywordsFocused = Spotlight.focus('keywords-section');
 			if (!keywordsFocused) {
 				Spotlight.focus('seasons-section');
@@ -593,16 +1038,14 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		}
 	}, []);
 
-	// Handle cast section key navigation
 	const handleCastSectionKeyDown = useCallback((e) => {
-		if (e.keyCode === 38) { // Up arrow
+		if (e.keyCode === 38) {
 			e.preventDefault();
 			e.stopPropagation();
 			Spotlight.focus('action-buttons');
-		} else if (e.keyCode === 40) { // Down arrow
+		} else if (e.keyCode === 40) {
 			e.preventDefault();
 			e.stopPropagation();
-			// Try recommendations, then similar
 			const recFocused = Spotlight.focus('details-row-0');
 			if (!recFocused) {
 				const simFocused = Spotlight.focus('details-row-1');
@@ -613,12 +1056,10 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 		}
 	}, []);
 
-	// Handle keywords section key navigation
 	const handleKeywordsSectionKeyDown = useCallback((e) => {
-		if (e.keyCode === 38) { // Up arrow
+		if (e.keyCode === 38) {
 			e.preventDefault();
 			e.stopPropagation();
-			// Try similar, then recommendations, then cast, then action buttons
 			const simFocused = Spotlight.focus('details-row-1');
 			if (!simFocused) {
 				const recFocused = Spotlight.focus('details-row-0');
@@ -629,15 +1070,13 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 					}
 				}
 			}
-		} else if (e.keyCode === 40) { // Down arrow
+		} else if (e.keyCode === 40) {
 			e.preventDefault();
 			e.stopPropagation();
-			// Try seasons section
 			Spotlight.focus('seasons-section');
 		}
 	}, []);
 
-	// Media facts data (matches Android TV createMediaFactsSection)
 	const mediaFacts = useMemo(() => {
 		if (!details) return [];
 		const facts = [];
@@ -751,9 +1190,33 @@ const JellyseerrDetails = ({mediaType, mediaId, onClose, onSelectItem, onSelectP
 				status4k={status4k}
 				canRequestHd={canRequestHd}
 				canRequest4k={canRequest4k}
-				onSelect={handleRequest}
+				onSelect={handleQualitySelect}
 				onClose={handleCloseQualityPopup}
 			/>
+
+			{/* Season Selection Popup (TV only) */}
+			{mediaType === 'tv' && (
+				<SeasonSelectionPopup
+					open={showSeasonPopup}
+					title={title}
+					seasons={details?.seasons}
+					seasonStatusMap={pendingIs4k ? seasonStatusMap4k : seasonStatusMapHd}
+					onConfirm={handleSeasonConfirm}
+					onClose={handleCloseSeasonPopup}
+				/>
+			)}
+
+			{/* Advanced Request Options Popup */}
+			{hasAdvanced && (
+				<AdvancedOptionsPopup
+					open={showAdvancedPopup}
+					title={title}
+					servers={servers}
+					is4k={pendingIs4k}
+					onConfirm={handleAdvancedConfirm}
+					onClose={handleCloseAdvancedPopup}
+				/>
+			)}
 
 			{/* Cancel Request Popup */}
 			<CancelRequestPopup
