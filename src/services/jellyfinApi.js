@@ -52,7 +52,7 @@ export const initDeviceId = async () => {
 		// Storage not available
 	}
 
-	deviceId = btoa([navigator.userAgent, Date.now()].join('|')).replace(/[=]/g, '1');
+	deviceId = 'moonfin_webos_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
 
 	try {
 		const {saveToStorage} = await import('./storage');
