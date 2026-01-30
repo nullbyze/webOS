@@ -1,5 +1,6 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
+import Spotlight from '@enact/spotlight';
 import {VirtualGridList} from '@enact/sandstone/VirtualList';
 import Popup from '@enact/sandstone/Popup';
 import Button from '@enact/sandstone/Button';
@@ -31,15 +32,14 @@ const FILTER_OPTIONS = [
 
 const LETTERS = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
 
-const BACKDROP_DEBOUNCE_MS = 300;
-
-const WINDOW_SIZE = 500;
+const BACKDROP_DEBOUNCE_MS = 500;
 
 const Library = ({library, onSelectItem, onBack}) => {
 	const {api, serverUrl} = useAuth();
+	const [allItems, setAllItems] = useState([]);
 	const [items, setItems] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
-	const [serverTotalCount, setServerTotalCount] = useState(0);
+	const [totalCount, setTotalCount] = useState(0);
 	const [sortBy, setSortBy] = useState('SortName,Ascending');
 	const [filter, setFilter] = useState('all');
 	const [startLetter, setStartLetter] = useState(null);
@@ -49,10 +49,10 @@ const Library = ({library, onSelectItem, onBack}) => {
 
 	const backdropTimeoutRef = useRef(null);
 	const backdropSetRef = useRef(false);
-	const pendingBatchesRef = useRef(new Set()); // Track batches being loaded
+	const pendingBackdropUrlRef = useRef(null);
+	const loadingMoreRef = useRef(false);
 	const itemsRef = useRef([]);
-	const loadedRangesRef = useRef([]);
-	const currentIndexRef = useRef(0);
+	const apiFetchIndexRef = useRef(0);
 
 	const getItemTypeForLibrary = useCallback(() => {
 		if (!library) return 'Movie,Series';
@@ -84,62 +84,29 @@ const Library = ({library, onSelectItem, onBack}) => {
 		return '';
 	}, [library]);
 
-	const isRangeLoaded = useCallback((start, end) => {
-		return loadedRangesRef.current.some(range =>
-			range.start <= start && range.end >= end
-		);
-	}, []);
-
-	// Unload items outside the current window to free memory
-	const unloadDistantItems = useCallback((currentIndex) => {
-		const windowStart = Math.max(0, currentIndex - WINDOW_SIZE);
-		const windowEnd = currentIndex + WINDOW_SIZE;
-
-		let unloadedCount = 0;
-		itemsRef.current.forEach((item, index) => {
-			if (item && (index < windowStart || index > windowEnd)) {
-				itemsRef.current[index] = null;
-				unloadedCount++;
-			}
-		});
-
-		if (unloadedCount > 0) {
-			loadedRangesRef.current = loadedRangesRef.current.filter(range =>
-				!(range.end < windowStart || range.start > windowEnd)
-			).map(range => ({
-				start: Math.max(range.start, windowStart),
-				end: Math.min(range.end, windowEnd)
-			}));
-		}
-	}, []);
-
-	const loadItems = useCallback(async (startIndex = 0, isReset = false) => {
+	const loadItems = useCallback(async (startIndex = 0, append = false) => {
 		if (!library) return;
 
-		// Check if this batch is already loaded or pending
-		if (!isReset) {
-			if (isRangeLoaded(startIndex, startIndex + 99)) {
-				return;
-			}
-			if (pendingBatchesRef.current.has(startIndex)) {
-				return;
-			}
-			pendingBatchesRef.current.add(startIndex);
+		if (append && loadingMoreRef.current) return;
+
+		if (append) {
+			loadingMoreRef.current = true;
 		}
 
 		try {
 			const [sortField, sortOrder] = sortBy.split(',');
+			const collectionType = library.CollectionType?.toLowerCase();
+
 			const params = {
 				ParentId: library.Id,
 				StartIndex: startIndex,
-				Limit: 100,
+				Limit: 150,
 				SortBy: sortField,
 				SortOrder: sortOrder,
 				Recursive: true,
 				IncludeItemTypes: getItemTypeForLibrary(),
 				EnableTotalRecordCount: true,
-				CollapseBoxSetItems: false,
-				Fields: 'PrimaryImageAspectRatio,ProductionYear,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,SeriesId,SeriesPrimaryImageTag'
+				Fields: 'PrimaryImageAspectRatio,ProductionYear,Overview,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,SeriesId,SeriesPrimaryImageTag'
 			};
 
 			const excludeTypes = getExcludeItemTypes();
@@ -147,10 +114,11 @@ const Library = ({library, onSelectItem, onBack}) => {
 				params.ExcludeItemTypes = excludeTypes;
 			}
 
-			if (startLetter && startLetter !== '#') {
-				params.NameStartsWith = startLetter;
-			} else if (startLetter === '#') {
-				params.NameLessThan = 'A';
+			// For movie libraries: CollapseBoxSetItems=false ensures movies that are part of
+			// BoxSets are still shown individually (not collapsed/hidden). Combined with
+			// ExcludeItemTypes=BoxSet, this shows all movies without showing BoxSet containers.
+			if (collectionType === 'movies') {
+				params.CollapseBoxSetItems = false;
 			}
 
 			if (filter !== 'all') {
@@ -165,34 +133,33 @@ const Library = ({library, onSelectItem, onBack}) => {
 				}
 			}
 
+			// NOTE: We do NOT use NameStartsWith server-side because Jellyfin's API
+			// ignores type filters when NameStartsWith is used, returning BoxSets
+			// even when excluded. Letter filtering is done client-side instead.
+
+			console.log('[Library] loadItems called, startIndex:', startIndex, 'params:', JSON.stringify(params));
 			const result = await api.getItems(params);
+			console.log('[Library] API returned:', result.TotalRecordCount, 'total,', result.Items?.length, 'items');
 			let newItems = result.Items || [];
 
-			// Filter out BoxSets client-side
+			// Filter out BoxSets client-side (Jellyfin API often ignores ExcludeItemTypes)
 			if (excludeTypes && newItems.length > 0) {
+				const before = newItems.length;
 				newItems = newItems.filter(item => item.Type !== 'BoxSet');
+				const filtered = before - newItems.length;
+				if (filtered > 0) {
+					console.log('[Library] Filtered out', filtered, 'BoxSets');
+				}
 			}
 
-			setServerTotalCount(result.TotalRecordCount || 0);
+			console.log('[Library] After BoxSet filter:', newItems.length, 'items');
 
-			if (isReset) {
-				const sparseArray = new Array(result.TotalRecordCount || 0).fill(null);
-				newItems.forEach((item, i) => {
-					sparseArray[startIndex + i] = item;
-				});
-				itemsRef.current = sparseArray;
-				loadedRangesRef.current = [{start: startIndex, end: startIndex + newItems.length - 1}];
-				setItems([...sparseArray]);
-			} else {
-				newItems.forEach((item, i) => {
-					itemsRef.current[startIndex + i] = item;
-				});
-				loadedRangesRef.current.push({start: startIndex, end: startIndex + newItems.length - 1});
-				loadedRangesRef.current.sort((a, b) => a.start - b.start);
-				setItems([...itemsRef.current]);
-			}
+			apiFetchIndexRef.current = append ? apiFetchIndexRef.current + (result.Items?.length || 0) : (result.Items?.length || 0);
 
-			if (isReset && newItems.length > 0 && !backdropSetRef.current) {
+			setAllItems(prev => append ? [...prev, ...newItems] : newItems);
+			setTotalCount(result.TotalRecordCount || 0);
+
+			if (!append && newItems.length > 0 && !backdropSetRef.current) {
 				const firstItemWithBackdrop = newItems.find(item => getBackdropId(item));
 				if (firstItemWithBackdrop) {
 					const url = getImageUrl(serverUrl, getBackdropId(firstItemWithBackdrop), 'Backdrop', {maxWidth: 1920, quality: 100});
@@ -203,26 +170,51 @@ const Library = ({library, onSelectItem, onBack}) => {
 		} catch (err) {
 			console.error('Failed to load library items:', err);
 		} finally {
-			pendingBatchesRef.current.delete(startIndex);
-			if (isReset) {
-				setIsLoading(false);
-			}
+			setIsLoading(false);
+			loadingMoreRef.current = false;
 		}
-	}, [api, library, sortBy, filter, startLetter, serverUrl, getItemTypeForLibrary, getExcludeItemTypes, isRangeLoaded]);
+	}, [api, library, sortBy, filter, serverUrl, getItemTypeForLibrary, getExcludeItemTypes]);
 
 	useEffect(() => {
+		console.log('[Library] useEffect triggered - library:', library?.Name);
 		if (library) {
 			setIsLoading(true);
+			setAllItems([]);
 			setItems([]);
-			setServerTotalCount(0);
-			itemsRef.current = [];
-			loadedRangesRef.current = [];
-			pendingBatchesRef.current = new Set();
-			currentIndexRef.current = 0;
 			backdropSetRef.current = false;
-			loadItems(0, true);
+			loadingMoreRef.current = false;
+			apiFetchIndexRef.current = 0;
+			loadItems(0, false);
 		}
-	}, [library, sortBy, filter, startLetter, loadItems]);
+	}, [library, sortBy, filter, loadItems]);
+
+	useEffect(() => {
+		if (!startLetter) {
+			setItems(allItems);
+			itemsRef.current = allItems;
+		} else {
+			const filtered = allItems.filter(item => {
+				const name = item.Name || '';
+				const firstChar = name.charAt(0).toUpperCase();
+				if (startLetter === '#') {
+					return !/[A-Z]/.test(firstChar);
+				}
+				return firstChar === startLetter;
+			});
+			console.log('[Library] Filtered by letter', startLetter, ':', filtered.length, 'items');
+			setItems(filtered);
+			itemsRef.current = filtered;
+		}
+
+		if (allItems.length > 0 && !isLoading) {
+			setTimeout(() => {
+				const firstItem = document.querySelector(`.${css.grid} .spottable`);
+				if (firstItem) {
+					firstItem.focus();
+				}
+			}, 100);
+		}
+	}, [allItems, startLetter, isLoading]);
 
 	const updateBackdrop = useCallback((ev) => {
 		const itemIndex = ev.currentTarget?.dataset?.index;
@@ -234,12 +226,16 @@ const Library = ({library, onSelectItem, onBack}) => {
 		const backdropId = getBackdropId(item);
 		if (backdropId) {
 			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
+			if (pendingBackdropUrlRef.current === url) return;
+			pendingBackdropUrlRef.current = url;
 
 			if (backdropTimeoutRef.current) {
 				clearTimeout(backdropTimeoutRef.current);
 			}
 			backdropTimeoutRef.current = setTimeout(() => {
-				setBackdropUrl(url);
+				window.requestAnimationFrame(() => {
+					setBackdropUrl(url);
+				});
 			}, BACKDROP_DEBOUNCE_MS);
 		}
 	}, [serverUrl]);
@@ -254,12 +250,37 @@ const Library = ({library, onSelectItem, onBack}) => {
 		}
 	}, [onSelectItem]);
 
+	const handleScrollStop = useCallback(() => {
+		console.log('[Library] onScrollStop - apiFetchIndex:', apiFetchIndexRef.current, 'totalCount:', totalCount, 'isLoading:', isLoading);
+		if (apiFetchIndexRef.current < totalCount && !isLoading && !loadingMoreRef.current) {
+			console.log('[Library] Loading more items from index:', apiFetchIndexRef.current);
+			loadItems(apiFetchIndexRef.current, true);
+		}
+	}, [totalCount, isLoading, loadItems]);
+
 	const handleLetterSelect = useCallback((ev) => {
 		const letter = ev.currentTarget?.dataset?.letter;
 		if (letter) {
 			setStartLetter(letter === startLetter ? null : letter);
 		}
 	}, [startLetter]);
+
+	const handleLetterKeyDown = useCallback((e) => {
+		if (e.keyCode === 40) {
+			e.preventDefault();
+			e.stopPropagation();
+			const focused = Spotlight.focus('.spottable');
+			if (!focused) {
+				const grid = document.querySelector(`.${css.grid}`);
+				if (grid) {
+					const firstItem = grid.querySelector('.spottable');
+					if (firstItem) {
+						firstItem.focus();
+					}
+				}
+			}
+		}
+	}, []);
 
 	const handleOpenSortModal = useCallback(() => {
 		setShowSortModal(true);
@@ -307,25 +328,13 @@ const Library = ({library, onSelectItem, onBack}) => {
 
 	const renderItem = useCallback(({index, ...rest}) => {
 		const item = itemsRef.current[index];
-
-		// Track current position for windowing
-		currentIndexRef.current = index;
-
-		// Check if we need to load items near this index
-		if (!item) {
-			const batchStart = Math.floor(index / 100) * 100;
-			if (!isRangeLoaded(batchStart, batchStart + 99) && !pendingBatchesRef.current.has(batchStart)) {
-				loadItems(batchStart, false);
-			}
-		}
-
-		// Periodically unload distant items to free memory (less frequently)
-		if (index % 500 === 0 && pendingBatchesRef.current.size === 0) {
-			unloadDistantItems(index);
+		const isNearEnd = index >= items.length - 50;
+		if (isNearEnd && apiFetchIndexRef.current < totalCount && !isLoading && !loadingMoreRef.current) {
+			console.log('[Library] Near end of items, loading more from index:', apiFetchIndexRef.current);
+			loadItems(apiFetchIndexRef.current, true);
 		}
 
 		if (!item) {
-			// Placeholder for items not yet loaded
 			return (
 				<div {...rest} className={css.itemCard}>
 					<div className={css.posterPlaceholder}>
@@ -368,7 +377,7 @@ const Library = ({library, onSelectItem, onBack}) => {
 				</div>
 			</SpottableDiv>
 		);
-	}, [serverUrl, handleItemClick, updateBackdrop, loadItems, isRangeLoaded, unloadDistantItems]);
+	}, [serverUrl, handleItemClick, updateBackdrop, items.length, totalCount, isLoading, loadItems]);
 
 	const currentSort = SORT_OPTIONS.find(o => o.key === sortBy);
 	const currentFilter = FILTER_OPTIONS.find(o => o.key === filter);
@@ -404,7 +413,7 @@ const Library = ({library, onSelectItem, onBack}) => {
 							{startLetter && ` • Starting with "${startLetter}"`}
 						</div>
 					</div>
-					<div className={css.counter}>{serverTotalCount} items</div>
+					<div className={css.counter}>{totalCount} items</div>
 				</div>
 
 				<div className={css.toolbar}>
@@ -434,6 +443,7 @@ const Library = ({library, onSelectItem, onBack}) => {
 								key={letter}
 								className={`${css.letterButton} ${startLetter === letter ? css.active : ''}`}
 								onClick={handleLetterSelect}
+								onKeyDown={handleLetterKeyDown}
 								data-letter={letter}
 							>
 								{letter}
@@ -452,10 +462,11 @@ const Library = ({library, onSelectItem, onBack}) => {
 					) : (
 						<VirtualGridList
 							className={css.grid}
-							dataSize={serverTotalCount}
+							dataSize={items.length}
 							itemRenderer={renderItem}
 							itemSize={{minWidth: 180, minHeight: 340}}
 							spacing={20}
+							onScrollStop={handleScrollStop}
 						/>
 					)}
 				</div>
