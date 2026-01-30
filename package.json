@@ -27,7 +27,9 @@
 		"ri": {
 			"baseSize": 24
 		},
-		"locales": ["en-US"],
+		"locales": [
+			"en-US"
+		],
 		"ilib": false,
 		"screenTypes": [
 			{
@@ -63,7 +65,7 @@
 		"web-vitals": "^3.5.1"
 	},
 	"devDependencies": {
-		"baseline-browser-mapping": "^2.9.17",
+		"baseline-browser-mapping": "^2.9.19",
 		"eslint-config-enact-proxy": "^1.0.7"
 	}
 }
