@@ -22,6 +22,7 @@ const MediaRow = ({
 	onNavigateDown
 }) => {
 	const scrollerRef = useRef(null);
+	const scrollTimeoutRef = useRef(null);
 
 	const handleSelect = useCallback((item) => {
 		onSelectItem?.(item);
@@ -33,14 +34,18 @@ const MediaRow = ({
 		const card = e.target.closest('.spottable');
 		const scroller = scrollerRef.current;
 		if (card && scroller) {
-			const cardRect = card.getBoundingClientRect();
-			const scrollerRect = scroller.getBoundingClientRect();
-
-			if (cardRect.left < scrollerRect.left) {
-				scroller.scrollLeft -= (scrollerRect.left - cardRect.left + 50);
-			} else if (cardRect.right > scrollerRect.right) {
-				scroller.scrollLeft += (cardRect.right - scrollerRect.right + 50);
+			if (scrollTimeoutRef.current) {
+				window.cancelAnimationFrame(scrollTimeoutRef.current);
 			}
+			scrollTimeoutRef.current = window.requestAnimationFrame(() => {
+				const cardRect = card.getBoundingClientRect();
+				const scrollerRect = scroller.getBoundingClientRect();
+				if (cardRect.left < scrollerRect.left) {
+					scroller.scrollLeft -= (scrollerRect.left - cardRect.left + 50);
+				} else if (cardRect.right > scrollerRect.right) {
+					scroller.scrollLeft += (cardRect.right - scrollerRect.right + 50);
+				}
+			});
 		}
 	}, [onFocus]);
 

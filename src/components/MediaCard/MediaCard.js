@@ -1,4 +1,4 @@
-import {memo, useCallback} from 'react';
+import {memo, useCallback, useMemo} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import {getImageUrl} from '../../utils/helpers';
 
@@ -9,7 +9,7 @@ const SpottableDiv = Spottable('div');
 const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusItem}) => {
 	const isLandscape = cardType === 'landscape';
 
-	const getItemImageUrl = () => {
+	const imageUrl = useMemo(() => {
 		if (isLandscape && item.Type === 'Episode') {
 			if (item.ImageTags?.Primary) {
 				return getImageUrl(serverUrl, item.Id, 'Primary', {maxWidth: 500, quality: 100});
@@ -27,9 +27,7 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 		}
 
 		return null;
-	};
-
-	const imageUrl = getItemImageUrl();
+	}, [isLandscape, item.Type, item.ImageTags?.Primary, item.Id, item.ParentThumbItemId, item.ParentBackdropItemId, serverUrl]);
 
 	const handleClick = useCallback(() => {
 		onSelect?.(item);
@@ -41,28 +39,27 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 
 	const progress = item.UserData?.PlayedPercentage || 0;
 
-	const getDisplayTitle = () => {
+	const displayTitle = useMemo(() => {
 		if (item.Type === 'Episode') {
 			return item.SeriesName || item.Name;
 		}
 		return item.Name;
-	};
+	}, [item.Type, item.SeriesName, item.Name]);
 
-	const getEpisodeInfo = () => {
+	const episodeInfo = useMemo(() => {
 		if (item.Type === 'Episode' && item.ParentIndexNumber !== undefined) {
 			return `S${item.ParentIndexNumber} E${item.IndexNumber} - ${item.Name}`;
 		}
 		return null;
-	};
+	}, [item.Type, item.ParentIndexNumber, item.IndexNumber, item.Name]);
 
 	const cardClass = `${css.card} ${isLandscape ? css.landscape : css.portrait}`;
-	const episodeInfo = getEpisodeInfo();
 
 	return (
 		<SpottableDiv className={cardClass} onClick={handleClick} onFocus={handleFocus}>
 			<div className={css.imageContainer}>
 				{imageUrl ? (
-					<img className={css.image} src={imageUrl} alt={item.Name} />
+					<img className={css.image} src={imageUrl} alt={item.Name} loading="lazy" />
 				) : (
 					<div className={css.placeholder}>{item.Name?.[0]}</div>
 				)}
@@ -77,11 +74,11 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 			<div className={css.info}>
 				{episodeInfo ? (
 					<>
-						<div className={css.seriesName}>{getDisplayTitle()}</div>
+						<div className={css.seriesName}>{displayTitle}</div>
 						<div className={css.episodeInfo}>{episodeInfo}</div>
 					</>
 				) : (
-					<div className={css.title}>{getDisplayTitle()}</div>
+					<div className={css.title}>{displayTitle}</div>
 				)}
 			</div>
 		</SpottableDiv>
