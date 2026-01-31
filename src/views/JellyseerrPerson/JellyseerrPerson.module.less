@@ -151,6 +151,8 @@
 	width: 100%;
 	aspect-ratio: 2/3;
 	margin-bottom: 8px;
+	overflow: hidden;
+	border-radius: 8px;
 }
 
 .poster {
@@ -172,6 +174,88 @@
 	justify-content: center;
 	font-size: 48px;
 	color: #666;
+}
+
+.mediaTypeBadge {
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	padding: 3px 8px;
+	border-radius: 10px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.5px;
+	text-transform: uppercase;
+	color: #fff;
+	z-index: 2;
+}
+
+.movieBadge {
+	background: #2563eb;
+}
+
+.seriesBadge {
+	background: #7c3aed;
+}
+
+.availabilityBadge {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	z-index: 2;
+}
+
+.availability5 {
+	background: #22c55e;
+	border: 2px solid #fff;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.availability5::after {
+	content: '';
+	position: absolute;
+	top: 3px;
+	left: 5px;
+	width: 4px;
+	height: 7px;
+	border: solid #fff;
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.availability4 {
+	background: #f59e0b;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.availability4::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 8px;
+	height: 2px;
+	background: #fff;
+	transform: translate(-50%, -50%);
+}
+
+.availability3 {
+	background: transparent;
+	border: 2px solid #6366f1;
+	border-top-color: transparent;
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 .cardInfo {
