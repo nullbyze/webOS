@@ -17,7 +17,10 @@ const DETAIL_GENRES_LIMIT = 2;
 const TRANSITION_DELAY_MS = 450;
 const PRELOAD_ADJACENT_SLIDES = 2;
 
-// Collection types to exclude from Latest Media rows
+let cachedRowData = null;
+let cachedLibraries = null;
+let cachedFeaturedItems = null;
+
 const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
 
 const SpottableDiv = Spottable('div');
@@ -49,34 +52,27 @@ const Browse = ({
 	const pendingBackdropRef = useRef(null);
 	const preloadedImagesRef = useRef(new Set());
 
-	// Get enabled and sorted home rows from settings
 	const homeRowsConfig = useMemo(() => {
 		return [...(settings.homeRows || [])].sort((a, b) => a.order - b.order);
 	}, [settings.homeRows]);
 
-	// Filter rows based on enabled settings
 	const filteredRows = useMemo(() => {
 		const enabledRowIds = homeRowsConfig.filter(r => r.enabled).map(r => r.id);
 
-		// Handle merged Continue Watching + Next Up
 		if (settings.mergeContinueWatchingNextUp) {
 			const resumeRow = allRowData.find(r => r.id === 'resume');
 			const nextUpRow = allRowData.find(r => r.id === 'nextup');
 
-			// Filter out original resume and nextup rows
 			let result = allRowData.filter(r => r.id !== 'resume' && r.id !== 'nextup');
 
-			// Create merged row if either exists
 			if (resumeRow || nextUpRow) {
 				const mergedItems = [
 					...(resumeRow?.items || []),
 					...(nextUpRow?.items || [])
 				];
-				// Remove duplicates by Id
 				const uniqueItems = [...new Map(mergedItems.map(i => [i.Id, i])).values()];
 
 				if (uniqueItems.length > 0) {
-					// Check if resume or nextup is enabled
 					if (enabledRowIds.includes('resume') || enabledRowIds.includes('nextup')) {
 						result = [{
 							id: 'continue-nextup',
@@ -137,6 +133,14 @@ const Browse = ({
 
 	useEffect(() => {
 		const loadData = async () => {
+			if (cachedRowData && cachedLibraries && cachedFeaturedItems) {
+				setLibraries(cachedLibraries);
+				setAllRowData(cachedRowData);
+				setFeaturedItems(cachedFeaturedItems);
+				setIsLoading(false);
+				return;
+			}
+
 			try {
 				const [libResult, resumeItems, nextUp, userConfig, randomItems] = await Promise.all([
 					api.getLibraries(),
@@ -148,6 +152,7 @@ const Browse = ({
 
 				const libs = libResult.Items || [];
 				setLibraries(libs);
+				cachedLibraries = libs;
 
 				const latestItemsExcludes = userConfig?.Configuration?.LatestItemsExcludes || [];
 
@@ -181,14 +186,21 @@ const Browse = ({
 					return true;
 				});
 
-				for (const lib of eligibleLibraries) {
-					const latest = await api.getLatest(lib.Id, 16);
-					if (latest?.length > 0) {
+				const latestResults = await Promise.all(
+					eligibleLibraries.map(lib =>
+						api.getLatest(lib.Id, 16)
+							.then(latest => ({lib, latest}))
+							.catch(() => null)
+					)
+				);
+
+				for (const result of latestResults) {
+					if (result && result.latest?.length > 0) {
 						rowData.push({
-							id: `latest-${lib.Id}`,
-							title: `Latest in ${lib.Name}`,
-							items: latest,
-							library: lib,
+							id: `latest-${result.lib.Id}`,
+							title: `Latest in ${result.lib.Name}`,
+							items: result.latest,
+							library: result.lib,
 							type: 'portrait',
 							isLatestRow: true
 						});
@@ -224,6 +236,7 @@ const Browse = ({
 				}
 
 				setAllRowData(rowData);
+				cachedRowData = rowData;
 
 				if (randomItems?.Items?.length > 0) {
 					const filteredItems = randomItems.Items.filter(item => item.Type !== 'BoxSet');
@@ -233,6 +246,7 @@ const Browse = ({
 						LogoUrl: getLogoUrl(serverUrl, item, {maxWidth: 800, quality: 90})
 					}));
 					setFeaturedItems(featuredWithLogos);
+					cachedFeaturedItems = featuredWithLogos;
 				}
 			} catch (err) {
 				console.error('Failed to load browse data:', err);
@@ -244,7 +258,6 @@ const Browse = ({
 		loadData();
 	}, [api, serverUrl, settings.featuredContentType, settings.featuredItemCount]);
 
-	// Preload adjacent featured images to prevent flickering during carousel transitions
 	useEffect(() => {
 		if (featuredItems.length === 0) return;
 
@@ -255,7 +268,6 @@ const Browse = ({
 			preloadedImagesRef.current.add(url);
 		};
 
-		// Preload adjacent slides
 		for (let offset = -PRELOAD_ADJACENT_SLIDES; offset <= PRELOAD_ADJACENT_SLIDES; offset++) {
 			const index = (currentFeaturedIndex + offset + featuredItems.length) % featuredItems.length;
 			const item = featuredItems[index];
