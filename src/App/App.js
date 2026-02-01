@@ -28,7 +28,7 @@ import JellyseerrPerson from '../views/JellyseerrPerson';
 
 import css from './App.module.less';
 
-const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
+const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
 
 const PANELS = {
 	LOGIN: 0,
@@ -54,7 +54,7 @@ const PANELS = {
 };
 
 const AppContent = (props) => {
-	const {isAuthenticated, isLoading, logout, serverUrl, serverName, api} = useAuth();
+	const {isAuthenticated, isLoading, logout, serverUrl, serverName, api, user} = useAuth();
 	const [panelIndex, setPanelIndex] = useState(PANELS.LOGIN);
 	const [selectedItem, setSelectedItem] = useState(null);
 	const [selectedLibrary, setSelectedLibrary] = useState(null);
@@ -71,7 +71,7 @@ const AppContent = (props) => {
 
 	useEffect(() => {
 		const fetchLibraries = async () => {
-			if (isAuthenticated && api) {
+			if (isAuthenticated && api && user) {
 				try {
 					const result = await api.getLibraries();
 					const libs = result.Items || [];
@@ -80,10 +80,12 @@ const AppContent = (props) => {
 				} catch (err) {
 					console.error('Failed to fetch libraries:', err);
 				}
+			} else {
+				setLibraries([]);
 			}
 		};
 		fetchLibraries();
-	}, [isAuthenticated, api]);
+	}, [isAuthenticated, api, user]);
 
 	const {updateInfo, formattedNotes, dismiss: dismissUpdate} = useVersionCheck(isAuthenticated ? 3000 : null);
 	useEffect(() => {
