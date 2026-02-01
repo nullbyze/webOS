@@ -245,19 +245,10 @@ export const getSubtitleUrl = (subtitleStream) => {
 	const serverUrl = jellyfinApi.getServerUrl();
 	const apiKey = jellyfinApi.getApiKey();
 
-	// Only External delivery method subtitles can be loaded as text tracks
-	// Embed and Encode methods require transcoding
-	if (subtitleStream.deliveryMethod === 'External' && subtitleStream.deliveryUrl) {
-		const url = subtitleStream.deliveryUrl;
-		return url.includes('api_key') ? url : `${url}${url.includes('?') ? '&' : '?'}api_key=${apiKey}`;
-	}
-
-	// For text-based subtitles, we can request them directly via the subtitle endpoint
-	if (subtitleStream.isTextBased) {
+	if (subtitleStream.isTextBased && subtitleStream.deliveryMethod === 'External') {
 		return `${serverUrl}/Videos/${itemId}/${mediaSourceId}/Subtitles/${subtitleStream.index}/Stream.vtt?api_key=${apiKey}`;
 	}
 
-	// Image-based subtitles (PGS, VOBSUB) cannot be delivered as text tracks
 	return null;
 };
 

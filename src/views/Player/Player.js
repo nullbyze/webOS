@@ -573,7 +573,30 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 	}, [onEnded, onPlayNext, nextEpisode]);
 
 	const handleError = useCallback(async () => {
-		console.error('[Player] Playback error');
+		const video = videoRef.current;
+		let errorMessage = 'Playback failed.';
+
+		if (video?.error) {
+			switch (video.error.code) {
+				case 1:
+					errorMessage = 'Playback was aborted.';
+					break;
+				case 2:
+					errorMessage = 'A network error occurred. Check your connection.';
+					break;
+				case 3:
+					errorMessage = 'The video format is not supported by this TV.';
+					break;
+				case 4:
+					errorMessage = 'The video source is not supported.';
+					break;
+				default:
+					errorMessage = 'An unknown playback error occurred.';
+			}
+			console.error('[Player] Playback error:', video.error.code, video.error.message);
+		} else {
+			console.error('[Player] Playback error (no error object)');
+		}
 
 		if (!hasTriedTranscode && playMethod !== playback.PlayMethod.Transcode) {
 			console.log('[Player] DirectPlay failed, falling back to transcode...');
@@ -596,10 +619,11 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				}
 			} catch (fallbackErr) {
 				console.error('[Player] Transcode fallback failed:', fallbackErr);
+				errorMessage = 'Transcoding failed. The server may not support this format.';
 			}
 		}
 
-		setError('Playback failed. The file format may not be supported.');
+		setError(errorMessage);
 	}, [hasTriedTranscode, playMethod, item.Id, selectedQuality, settings.maxBitrate]);
 
 	// Handle back button
@@ -904,9 +928,14 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 			)}
 
 			{/* Playback Indicators */}
-			{playbackRate !== 1 && (
+			{(playbackRate !== 1 || playMethod) && (
 				<div className={css.playbackIndicators}>
-					<div className={css.speedIndicator}>{playbackRate}x</div>
+					{playbackRate !== 1 && <div className={css.speedIndicator}>{playbackRate}x</div>}
+					{playMethod && (
+						<div className={css.playMethodIndicator}>
+							{playMethod === 'DirectPlay' ? 'Direct' : playMethod === 'DirectStream' ? 'Remux' : 'Transcode'}
+						</div>
+					)}
 				</div>
 			)}
 

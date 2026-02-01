@@ -174,8 +174,8 @@ export const getDeviceCapabilities = async () => {
 		oled: cfg['tv.model.oled'] === true || deviceInfoData.oled || false,
 
 		hdr10: cfg['tv.model.supportHDR'] === true,
-		hdr10Plus: cfg['tv.nvm.support.edid.hdr10plus'] === true,
-		hlg: cfg['tv.config.supportHLG'] === true,
+		hdr10Plus: cfg['tv.nvm.support.edid.hdr10plus'] === true || webosVersion >= 6,
+		hlg: cfg['tv.config.supportHLG'] === true || cfg['tv.model.supportHDR'] === true,
 		dolbyVision: cfg['tv.config.supportDolbyHDRContents'] === true,
 
 		dolbyAtmos: cfg['tv.conti.supportDolbyAtmos'] === true || cfg['tv.config.supportDolbyAtmos'] === true,
@@ -206,8 +206,29 @@ export const getDeviceCapabilities = async () => {
 	return cachedCapabilities;
 };
 
+const buildVideoRangeTypes = (caps) => {
+	let rangeTypes = ['SDR'];
+
+	if (caps.hdr10) {
+		rangeTypes.push('HDR10', 'HDR10Plus');
+	}
+
+	if (caps.hlg) {
+		rangeTypes.push('HLG');
+	}
+
+	if (caps.dolbyVision) {
+		rangeTypes.push('DOVI', 'DOVIWithHDR10', 'DOVIWithHLG', 'DOVIWithSDR', 'DOVIWithHDR10Plus');
+		rangeTypes.push('DOVIWithEL', 'DOVIWithELHDR10Plus', 'DOVIInvalid');
+	}
+
+	return rangeTypes.join('|');
+};
+
 export const getJellyfinDeviceProfile = async () => {
 	const caps = await getDeviceCapabilities();
+
+	const videoRangeTypes = buildVideoRangeTypes(caps);
 
 	const videoCodecs = ['h264'];
 	if (caps.hevc) videoCodecs.push('hevc');
@@ -220,7 +241,12 @@ export const getJellyfinDeviceProfile = async () => {
 	audioCodecs.push('vorbis');
 	if (caps.ac3) audioCodecs.push('ac3');
 	if (caps.eac3) audioCodecs.push('eac3');
-	if (caps.dts) audioCodecs.push('dts', 'dca');
+	if (caps.dts) {
+		audioCodecs.push('dts', 'dca');
+		if (caps.webosVersion >= 23) {
+			audioCodecs.push('dts-hd', 'dtshd');
+		}
+	}
 	if (caps.truehd) audioCodecs.push('truehd');
 
 	// Build container list from documented support
@@ -280,16 +306,20 @@ export const getJellyfinDeviceProfile = async () => {
 			Context: 'Streaming',
 			Protocol: 'hls',
 			MaxAudioChannels: maxAudioChannels,
-			MinSegments: '1',
-			SegmentLength: '3',
-			BreakOnNonKeyFrames: true
+			MinSegments: caps.webosVersion >= 5 ? '1' : '2',
+			SegmentLength: caps.webosVersion >= 5 ? '3' : '6',
+			BreakOnNonKeyFrames: false,
+			MaxWidth: caps.uhd8K ? 7680 : caps.uhd ? 3840 : 1920,
+			MaxHeight: caps.uhd8K ? 4320 : caps.uhd ? 2160 : 1080
 		},
 		{
 			Container: 'mp4',
 			Type: 'Video',
 			AudioCodec: 'aac,ac3',
 			VideoCodec: 'h264',
-			Context: 'Static'
+			Context: 'Static',
+			MaxWidth: caps.uhd8K ? 7680 : caps.uhd ? 3840 : 1920,
+			MaxHeight: caps.uhd8K ? 4320 : caps.uhd ? 2160 : 1080
 		},
 		{
 			Container: 'mp3',
@@ -302,7 +332,7 @@ export const getJellyfinDeviceProfile = async () => {
 
 	const codecProfiles = [
 		{
-			// H.264: Level 4.2 (1080p60), Level 5.1 (4K)
+			// H.264: Level 4.2 (1080p60), Level 5.1 (4K), SDR only
 			Type: 'Video',
 			Codec: 'h264',
 			Conditions: [
@@ -310,6 +340,12 @@ export const getJellyfinDeviceProfile = async () => {
 					Condition: 'NotEquals',
 					Property: 'IsAnamorphic',
 					Value: 'true',
+					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: 'SDR',
 					IsRequired: false
 				},
 				{
@@ -333,7 +369,6 @@ export const getJellyfinDeviceProfile = async () => {
 			]
 		},
 		{
-			// HEVC: Main/Main10, Level 4.1-6.1 depending on resolution
 			Type: 'Video',
 			Codec: 'hevc',
 			Conditions: [
@@ -347,6 +382,12 @@ export const getJellyfinDeviceProfile = async () => {
 					Condition: 'LessThanEqual',
 					Property: 'VideoBitDepth',
 					Value: caps.hdr10 || caps.dolbyVision ? '10' : '8',
+					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: videoRangeTypes,
 					IsRequired: false
 				}
 			]
@@ -381,6 +422,12 @@ export const getJellyfinDeviceProfile = async () => {
 					Property: 'VideoBitDepth',
 					Value: '10',
 					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: videoRangeTypes,
+					IsRequired: false
 				}
 			]
 		});
@@ -397,22 +444,28 @@ export const getJellyfinDeviceProfile = async () => {
 					Property: 'VideoBitDepth',
 					Value: caps.hdr10 ? '10' : '8',
 					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: videoRangeTypes,
+					IsRequired: false
 				}
 			]
 		});
 	}
 
 	const subtitleProfiles = [
-		{Format: 'srt', Method: 'External'},
-		{Format: 'ass', Method: 'External'},
-		{Format: 'ssa', Method: 'External'},
 		{Format: 'vtt', Method: 'External'},
-		{Format: 'sub', Method: 'External'},
-		{Format: 'smi', Method: 'External'},
+		{Format: 'srt', Method: 'External'},
+		{Format: 'ass', Method: 'Encode'},
+		{Format: 'ssa', Method: 'Encode'},
+		{Format: 'sub', Method: 'Encode'},
+		{Format: 'smi', Method: 'Encode'},
 		{Format: 'ttml', Method: 'External'},
-		{Format: 'pgs', Method: 'Embed'},
-		{Format: 'dvdsub', Method: 'Embed'},
-		{Format: 'dvbsub', Method: 'Embed'}
+		{Format: 'pgssub', Method: 'Encode'},
+		{Format: 'dvdsub', Method: 'Encode'},
+		{Format: 'dvbsub', Method: 'Encode'}
 	];
 
 	const responseProfiles = [
