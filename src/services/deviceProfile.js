@@ -1,9 +1,4 @@
-/**
- * Device Profile Service - Detects webOS hardware capabilities
- *
- * IMPORTANT: webOS uses native media pipeline, NOT browser-based playback.
- * canPlayType() is unreliable - use Luna APIs and documented specs instead.
- */
+// Device Profile Service - webOS hardware capability detection via Luna APIs
 
 let cachedCapabilities = null;
 
@@ -12,7 +7,7 @@ export const clearCapabilitiesCache = () => {
 };
 
 const CHROME_TO_WEBOS = [
-	[94, 23], [87, 22], [79, 6], [68, 5], [53, 4], [38, 3], [34, 2], [26, 1]
+	[120, 25], [108, 24], [94, 23], [87, 22], [79, 6], [68, 5], [53, 4], [38, 3], [34, 2], [26, 1]
 ];
 
 const getWebOSVersionFromChrome = (chromeVersion) => {
@@ -27,7 +22,7 @@ export const detectWebOSVersion = (sdkVersion = null) => {
 		const match = /^(\d+)\./.exec(sdkVersion);
 		if (match) {
 			const major = parseInt(match[1], 10);
-			if (major >= 1 && major <= 23) return major;
+			if (major >= 1 && major <= 25) return major;
 		}
 	}
 
@@ -44,11 +39,16 @@ const getDocumentedContainerSupport = (webosVersion) => {
 		mp4: true,
 		m4v: true,
 		ts: true,
-		mov: false,
-		avi: false,
+		mov: true,
+		avi: true,
+		'3gp': true,
+		mpg: true,
+		vob: true,
+		asf: true,
+		wmv: true,
 		webm: false,
 		mkv: false,
-		hls: false
+		hls: true
 	};
 
 	if (webosVersion >= 4) {
@@ -57,7 +57,6 @@ const getDocumentedContainerSupport = (webosVersion) => {
 
 	if (webosVersion >= 5) {
 		supported.webm = true;
-		supported.hls = true;
 	}
 
 	console.log(`[deviceProfile] webOS ${webosVersion} documented container support:`, supported);
@@ -67,13 +66,13 @@ const getDocumentedContainerSupport = (webosVersion) => {
 export const testHevcSupport = (lunaResult = null, webosVersion = 4) => {
 	if (lunaResult === true) return true;
 	if (lunaResult === false) return false;
-	return webosVersion >= 3;
+	return webosVersion >= 4;
 };
 
 export const testAv1Support = (lunaResult = null, webosVersion = 4) => {
 	if (lunaResult === true) return true;
 	if (lunaResult === false) return false;
-	return webosVersion >= 22;
+	return webosVersion >= 5;
 };
 
 export const testVp9Support = (lunaResult = null, webosVersion = 4) => {
@@ -82,8 +81,24 @@ export const testVp9Support = (lunaResult = null, webosVersion = 4) => {
 	return webosVersion >= 4;
 };
 
-export const testDtsSupport = (webosVersion) => {
-	return webosVersion <= 4 || webosVersion >= 23;
+export const testDtsSupport = () => {
+	// All versions support DTS in at least MKV container
+	return true;
+};
+
+// Check if DTS is supported in a specific container based on webOS version
+export const testDtsInContainer = (webosVersion, container) => {
+	const containerLower = (container || '').toLowerCase();
+
+	if (webosVersion >= 23) {
+		return ['mkv', 'matroska', 'mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mts', 'm2ts'].includes(containerLower);
+	}
+
+	if (webosVersion >= 5) {
+		return containerLower === 'mkv' || containerLower === 'matroska';
+	}
+
+	return ['mkv', 'matroska', 'avi'].includes(containerLower);
 };
 
 export const testAc3Support = () => true;
@@ -175,9 +190,13 @@ export const getDeviceCapabilities = async () => {
 
 		...containerSupport,
 
+		// HLS support details:
+		// - All versions: Native HLS with AES128 encryption
+		// - webOS 5+: fMP4 segments, AC3 audio
 		nativeHls: containerSupport.hls,
 		nativeHlsFmp4: webosVersion >= 5,
 		hlsAc3: webosVersion >= 5,
+		hlsByteRange: webosVersion >= 4,
 
 		lunaConfig: cfg,
 		ddrSize: cfg['tv.hw.ddrSize'] || 0
@@ -195,24 +214,36 @@ export const getJellyfinDeviceProfile = async () => {
 	if (caps.vp9) videoCodecs.push('vp9');
 	if (caps.av1) videoCodecs.push('av1');
 
-	const audioCodecs = ['aac', 'mp3', 'flac', 'opus', 'vorbis', 'pcm', 'wav'];
+	const audioCodecs = ['aac', 'mp3', 'flac', 'pcm', 'wav'];
+
+	if (caps.webosVersion >= 24) audioCodecs.push('opus');
+	audioCodecs.push('vorbis');
 	if (caps.ac3) audioCodecs.push('ac3');
 	if (caps.eac3) audioCodecs.push('eac3');
 	if (caps.dts) audioCodecs.push('dts', 'dca');
 	if (caps.truehd) audioCodecs.push('truehd');
 
+	// Build container list from documented support
 	const videoContainers = [];
 	if (caps.mp4) videoContainers.push('mp4');
 	if (caps.m4v) videoContainers.push('m4v');
+	if (caps.mov) videoContainers.push('mov');
+	if (caps.avi) videoContainers.push('avi');
+	if (caps['3gp']) videoContainers.push('3gp', '3g2');
+	if (caps.mpg) videoContainers.push('mpg', 'mpeg');
+	if (caps.vob) videoContainers.push('vob');
 	if (caps.webm) videoContainers.push('webm');
-	if (caps.ts) videoContainers.push('ts', 'mpegts');
+	if (caps.ts) videoContainers.push('ts', 'mpegts', 'mts', 'm2ts');
 	if (caps.mkv) videoContainers.push('mkv', 'matroska');
+	if (caps.asf) videoContainers.push('asf');
+	if (caps.wmv) videoContainers.push('wmv');
 
 	console.log('[deviceProfile] DirectPlayProfiles:', [{Container: videoContainers.join(','), VideoCodec: videoCodecs.join(','), AudioCodec: audioCodecs.join(',')}]);
 	console.log('[deviceProfile] Containers:', videoContainers);
 	console.log('[deviceProfile] Video codecs:', videoCodecs);
 	console.log('[deviceProfile] Audio codecs:', audioCodecs);
 
+	// Allow higher bitrates than documented specs since hardware often exceeds them
 	const maxBitrate = caps.uhd8K ? 200000000 : caps.uhd ? 120000000 : 80000000;
 	const maxAudioChannels = caps.dolbyAtmos ? '8' : '6';
 
@@ -229,12 +260,14 @@ export const getJellyfinDeviceProfile = async () => {
 		}
 	];
 
+	// HLS direct play - webOS 5+ supports full audio codec range
 	if (caps.nativeHls) {
+		const hlsAudioCodecs = caps.hlsAc3 ? audioCodecs.join(',') : 'aac,mp3';
 		directPlayProfiles.push({
 			Container: 'm3u8',
 			Type: 'Video',
 			VideoCodec: videoCodecs.join(','),
-			AudioCodec: caps.hlsAc3 ? audioCodecs.join(',') : 'aac,mp3'
+			AudioCodec: hlsAudioCodecs
 		});
 	}
 
@@ -269,6 +302,7 @@ export const getJellyfinDeviceProfile = async () => {
 
 	const codecProfiles = [
 		{
+			// H.264: Level 4.2 (1080p60), Level 5.1 (4K)
 			Type: 'Video',
 			Codec: 'h264',
 			Conditions: [
@@ -281,7 +315,7 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: caps.uhd ? '51' : '41',
+					Value: caps.uhd ? '51' : '42',
 					IsRequired: false
 				},
 				{
@@ -299,13 +333,14 @@ export const getJellyfinDeviceProfile = async () => {
 			]
 		},
 		{
+			// HEVC: Main/Main10, Level 4.1-6.1 depending on resolution
 			Type: 'Video',
 			Codec: 'hevc',
 			Conditions: [
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: caps.uhd ? '153' : '120',
+					Value: caps.uhd8K ? '183' : caps.uhd ? '153' : '123',
 					IsRequired: false
 				},
 				{
@@ -329,6 +364,7 @@ export const getJellyfinDeviceProfile = async () => {
 		}
 	];
 
+	// AV1 (webOS 5+)
 	if (caps.av1) {
 		codecProfiles.push({
 			Type: 'Video',
@@ -337,13 +373,29 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: '15',
+					Value: caps.uhd8K ? '19' : '13',
 					IsRequired: false
 				},
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoBitDepth',
 					Value: '10',
+					IsRequired: false
+				}
+			]
+		});
+	}
+
+	// VP9 (webOS 4+)
+	if (caps.vp9) {
+		codecProfiles.push({
+			Type: 'Video',
+			Codec: 'vp9',
+			Conditions: [
+				{
+					Condition: 'LessThanEqual',
+					Property: 'VideoBitDepth',
+					Value: caps.hdr10 ? '10' : '8',
 					IsRequired: false
 				}
 			]
@@ -378,6 +430,15 @@ export const getJellyfinDeviceProfile = async () => {
 			MimeType: 'video/x-matroska'
 		});
 	}
+
+	console.log('[deviceProfile] Final profile:', {
+		webosVersion: caps.webosVersion,
+		videoCodecs,
+		audioCodecs,
+		videoContainers,
+		hdr: { hdr10: caps.hdr10, dolbyVision: caps.dolbyVision, hlg: caps.hlg },
+		maxBitrate
+	});
 
 	return {
 		Name: `Moonfin webOS ${caps.webosVersion}`,

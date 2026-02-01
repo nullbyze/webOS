@@ -2,7 +2,14 @@ import {useState, useEffect, useCallback, useRef, useMemo} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import Button from '@enact/sandstone/Button';
 import * as playback from '../../services/playback';
-import {initLunaAPI, registerAppStateObserver, keepScreenOn} from '../../services/webosVideo';
+import {
+	initLunaAPI,
+	registerAppStateObserver,
+	keepScreenOn,
+	cleanupVideoElement,
+	setupVisibilityHandler,
+	setupWebOSLifecycle
+} from '../../services/webosVideo';
 import {useSettings} from '../../context/SettingsContext';
 import TrickplayPreview from '../../components/TrickplayPreview';
 
@@ -220,7 +227,48 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		};
 	}, [isPaused]);
 
+	// Handle webOS app visibility and relaunch events to properly pause/cleanup video
 	useEffect(() => {
+		let wasPlaying = false;
+
+		const handleAppHidden = () => {
+			console.log('[Player] App hidden - pausing and preparing for cleanup');
+			if (videoRef.current) {
+				wasPlaying = !videoRef.current.paused;
+				if (wasPlaying) {
+					videoRef.current.pause();
+				}
+			}
+		};
+
+		const handleAppVisible = () => {
+			console.log('[Player] App visible - resuming if was playing');
+			if (videoRef.current && wasPlaying) {
+				videoRef.current.play().catch(err => {
+					console.warn('[Player] Failed to resume playback:', err);
+				});
+			}
+		};
+
+		const handleRelaunch = (params) => {
+			console.log('[Player] App relaunched with params:', params);
+			if (videoRef.current) {
+				cleanupVideoElement(videoRef.current);
+			}
+		};
+
+		const removeVisibilityHandler = setupVisibilityHandler(handleAppHidden, handleAppVisible);
+		const removeWebOSHandler = setupWebOSLifecycle(handleRelaunch);
+
+		return () => {
+			removeVisibilityHandler();
+			removeWebOSHandler();
+		};
+	}, []);
+
+	useEffect(() => {
+		const videoElement = videoRef.current;
+
 		const loadMedia = async () => {
 			setIsLoading(true);
 			setError(null);
@@ -319,14 +367,48 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		return () => {
 			playback.stopProgressReporting();
 			playback.stopHealthMonitoring();
+
 			if (nextEpisodeTimerRef.current) {
 				clearInterval(nextEpisodeTimerRef.current);
 			}
 			if (controlsTimeoutRef.current) {
 				clearTimeout(controlsTimeoutRef.current);
 			}
+
+			// Release hardware decoder on unmount
+			cleanupVideoElement(videoElement);
 		};
-	}, [item, selectedQuality, settings.maxBitrate, settings.preferTranscode, settings.subtitleMode, settings.skipIntro]);
+	}, [item, selectedQuality, settings.maxBitrate, settings.preferTranscode, settings.subtitleMode, settings.skipIntro, initialAudioIndex, initialSubtitleIndex]);
+
+	useEffect(() => {
+		const video = videoRef.current;
+		if (!video) return;
+
+		const enableSubtitle = () => {
+			if (video.textTracks && video.textTracks.length > 0) {
+				for (let i = 0; i < video.textTracks.length; i++) {
+					video.textTracks[i].mode = subtitleUrl ? 'showing' : 'hidden';
+				}
+			}
+		};
+
+		if (subtitleUrl) {
+			const track = video.querySelector('track');
+			if (track) {
+				track.addEventListener('load', enableSubtitle);
+			}
+			enableSubtitle();
+		} else {
+			enableSubtitle();
+		}
+
+		return () => {
+			const track = video.querySelector('track');
+			if (track) {
+				track.removeEventListener('load', enableSubtitle);
+			}
+		};
+	}, [subtitleUrl]);
 
 	// Controls auto-hide
 	const showControls = useCallback(() => {
@@ -478,6 +560,11 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 
 	const handleEnded = useCallback(async () => {
 		await playback.reportStop(positionRef.current);
+
+		// Cleanup video element before navigating to next episode or exiting
+		// This ensures hardware decoder is released
+		cleanupVideoElement(videoRef.current);
+
 		if (nextEpisode && onPlayNext) {
 			onPlayNext(nextEpisode);
 		} else {
@@ -519,6 +606,11 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 	const handleBack = useCallback(async () => {
 		cancelNextEpisodeCountdown();
 		await playback.reportStop(positionRef.current);
+
+		// Cleanup video element before exiting player
+		// Critical for webOS to release hardware decoder
+		cleanupVideoElement(videoRef.current);
+
 		onBack?.();
 	}, [onBack, cancelNextEpisodeCountdown]);
 
@@ -798,7 +890,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				onEnded={handleEnded}
 				onError={handleError}
 			>
-				{subtitleUrl && <track kind="subtitles" src={subtitleUrl} default />}
+				{subtitleUrl && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="Subtitles" />}
 			</video>
 
 			{/* Video Dimmer */}

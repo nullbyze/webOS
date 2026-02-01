@@ -46,7 +46,6 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 	const castScrollerRef = useRef(null);
 	const seasonsScrollerRef = useRef(null);
-	const primaryButtonRef = useRef(null);
 	const pageScrollerRef = useRef(null);
 
 	useEffect(() => {
@@ -544,14 +543,14 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 					{!isPerson && !isBoxSet && (
 						<HorizontalContainer className={css.actionButtons} onKeyDown={handleButtonRowKeyDown}>
 							{hasPlaybackPosition && (
-								<SpottableDiv ref={primaryButtonRef} className={css.btnWrapper} onClick={handleResume} spotlightId="details-primary-btn">
+								<SpottableDiv className={css.btnWrapper} onClick={handleResume} spotlightId="details-primary-btn">
 									<div className={css.btnAction}>
 										<span className={css.btnIcon}>▶</span>
 									</div>
 									<span className={css.btnLabel}>Resume {resumeTimeText}</span>
 								</SpottableDiv>
 							)}
-							<SpottableDiv ref={hasPlaybackPosition ? null : primaryButtonRef} className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId={hasPlaybackPosition ? undefined : 'details-primary-btn'}>
+							<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId={hasPlaybackPosition ? undefined : 'details-primary-btn'}>
 								<div className={css.btnAction}>
 									{hasPlaybackPosition ? (
 										<svg className={css.btnIcon} viewBox="0 -960 960 960">

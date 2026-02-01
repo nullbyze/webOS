@@ -240,8 +240,8 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 
 export const getSubtitleUrl = (subtitleStream) => {
 	if (!subtitleStream || !currentSession) return null;
-	
-	const {itemId, mediaSourceId, playSessionId} = currentSession;
+
+	const {itemId, mediaSourceId} = currentSession;
 	const serverUrl = jellyfinApi.getServerUrl();
 	const apiKey = jellyfinApi.getApiKey();
 

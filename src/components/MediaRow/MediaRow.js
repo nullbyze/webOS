@@ -17,11 +17,15 @@ const MediaRow = ({
 	onFocus,
 	onFocusItem,
 	rowIndex,
+	rowId,
 	onNavigateUp,
 	onNavigateDown
 }) => {
 	const scrollerRef = useRef(null);
 	const scrollTimeoutRef = useRef(null);
+
+	// Unique key prefix to avoid duplicate keys when same item appears in multiple rows
+	const keyPrefix = rowId || title || rowIndex || '';
 
 	const handleSelect = useCallback((item) => {
 		onSelectItem?.(item);
@@ -74,7 +78,7 @@ const MediaRow = ({
 				<div className={css.items}>
 					{items.map((item) => (
 						<MediaCard
-							key={item.Id}
+							key={`${keyPrefix}-${item.Id}`}
 							item={item}
 							serverUrl={serverUrl}
 							cardType={cardType}
