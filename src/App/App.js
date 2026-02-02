@@ -126,15 +126,14 @@ const AppContent = (props) => {
 			}
 			if (e.keyCode === 461 || e.keyCode === 27 || e.keyCode === 8) {
 				e.preventDefault();
+				e.stopPropagation();
 
 				if (panelIndex === PANELS.BROWSE || panelIndex === PANELS.LOGIN) {
-					e.stopPropagation();
 					return;
 				}
 				if (panelIndex === PANELS.PLAYER || panelIndex === PANELS.SETTINGS) {
 					return;
 				}
-				e.stopPropagation();
 				handleBack();
 			}
 		};

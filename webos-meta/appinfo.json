@@ -12,7 +12,7 @@
     "splashBackground": "splash.png",
     "bgColor": "#000b25",
     "iconColor": "#000b25",
-    "disableBackHistoryAPI": false,
+    "disableBackHistoryAPI": true,
     "requiredPermissions": [
         "time.query",
         "activity.operation",
