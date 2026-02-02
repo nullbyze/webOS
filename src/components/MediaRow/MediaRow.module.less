@@ -24,6 +24,8 @@
 	scrollbar-width: none;
 	margin-left: -60px;
 	margin-right: -60px;
+	-webkit-overflow-scrolling: touch;
+	transform: translateZ(0);
 
 	&::-webkit-scrollbar {
 		display: none;
@@ -34,6 +36,7 @@
 	display: flex;
 	padding: 20px 0;
 	width: max-content;
+	transform: translateZ(0);
 
 	> * + * {
 		margin-left: 24px;

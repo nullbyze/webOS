@@ -1,4 +1,4 @@
-import {memo, useCallback, useMemo} from 'react';
+import {memo, useCallback, useMemo, useRef} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import {getImageUrl} from '../../utils/helpers';
 
@@ -8,6 +8,7 @@ const SpottableDiv = Spottable('div');
 
 const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusItem}) => {
 	const isLandscape = cardType === 'landscape';
+	const focusTimeoutRef = useRef(null);
 
 	const imageUrl = useMemo(() => {
 		if (isLandscape && item.Type === 'Episode') {
@@ -34,7 +35,12 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 	}, [item, onSelect]);
 
 	const handleFocus = useCallback(() => {
-		onFocusItem?.(item);
+		if (focusTimeoutRef.current) {
+			clearTimeout(focusTimeoutRef.current);
+		}
+		focusTimeoutRef.current = setTimeout(() => {
+			onFocusItem?.(item);
+		}, 50);
 	}, [item, onFocusItem]);
 
 	const progress = item.UserData?.PlayedPercentage || 0;

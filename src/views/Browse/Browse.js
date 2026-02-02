@@ -10,7 +10,8 @@ import {getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
 import css from './Browse.module.less';
 
 const FOCUS_DELAY_MS = 100;
-const BACKDROP_DEBOUNCE_MS = 300;
+const BACKDROP_DEBOUNCE_MS = 500;
+const FOCUS_ITEM_DEBOUNCE_MS = 150;
 const FEATURED_GENRES_LIMIT = 3;
 const DETAIL_GENRES_LIMIT = 2;
 const TRANSITION_DELAY_MS = 450;
@@ -44,6 +45,7 @@ const Browse = ({
 	const backdropTimeoutRef = useRef(null);
 	const pendingBackdropRef = useRef(null);
 	const preloadedImagesRef = useRef(new Set());
+	const focusItemTimeoutRef = useRef(null);
 
 	const homeRowsConfig = useMemo(() => {
 		return [...(settings.homeRows || [])].sort((a, b) => a.order - b.order);
@@ -108,7 +110,7 @@ const Browse = ({
 		Spotlight.focus(`row-${targetIndex}`);
 		const targetRow = document.querySelector(`[data-row-index="${targetIndex}"]`);
 		if (targetRow) {
-			targetRow.scrollIntoView({behavior: 'smooth', block: 'start'});
+			targetRow.scrollIntoView({block: 'start'});
 		}
 	}, [settings.showFeaturedBar]);
 
@@ -118,7 +120,7 @@ const Browse = ({
 		Spotlight.focus(`row-${targetIndex}`);
 		const targetRow = document.querySelector(`[data-row-index="${targetIndex}"]`);
 		if (targetRow) {
-			targetRow.scrollIntoView({behavior: 'smooth', block: 'center'});
+			targetRow.scrollIntoView({block: 'center'});
 		}
 	}, [filteredRows.length]);
 
@@ -127,6 +129,14 @@ const Browse = ({
 			setBrowseMode('rows');
 		}
 	}, [settings.showFeaturedBar]);
+
+	useEffect(() => {
+		return () => {
+			if (focusItemTimeoutRef.current) {
+				clearTimeout(focusItemTimeoutRef.current);
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!isLoading) {
@@ -323,7 +333,7 @@ const Browse = ({
 		}
 
 		if (backdropId) {
-			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1920, quality: 100});
+			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
 			if (pendingBackdropRef.current === url) return;
 
 			if (backdropTimeoutRef.current) {
@@ -418,12 +428,17 @@ const Browse = ({
 	}, [browseMode]);
 
 	const handleFocusItem = useCallback((item) => {
-		setFocusedItem(item);
-		if (!item.BackdropImageTags?.length && !item.ParentBackdropImageTags?.length) {
-			api.getItem(item.Id).then(fullItem => {
-				setFocusedItem(fullItem);
-			}).catch(() => {});
+		if (focusItemTimeoutRef.current) {
+			clearTimeout(focusItemTimeoutRef.current);
 		}
+		focusItemTimeoutRef.current = setTimeout(() => {
+			setFocusedItem(item);
+			if (!item.BackdropImageTags?.length && !item.ParentBackdropImageTags?.length) {
+				api.getItem(item.Id).then(fullItem => {
+					setFocusedItem(fullItem);
+				}).catch(() => {});
+			}
+		}, FOCUS_ITEM_DEBOUNCE_MS);
 	}, [api]);
 
 	const handleFeaturedClick = useCallback(() => {
