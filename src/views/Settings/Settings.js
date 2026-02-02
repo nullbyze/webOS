@@ -536,6 +536,7 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 				{renderToggleItem('Show Shuffle Button', 'Show shuffle button in navigation bar', 'showShuffleButton')}
 				{renderToggleItem('Show Genres Button', 'Show genres button in navigation bar', 'showGenresButton')}
 				{renderToggleItem('Show Favorites Button', 'Show favorites button in navigation bar', 'showFavoritesButton')}
+				{renderToggleItem('Show Libraries in Toolbar', 'Show expandable library shortcuts in navigation bar', 'showLibrariesInToolbar')}
 			</div>
 			<div className={css.settingsGroup}>
 				<h2>Home Screen</h2>

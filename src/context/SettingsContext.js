@@ -23,6 +23,7 @@ const defaultSettings = {
 	showShuffleButton: true,
 	showGenresButton: true,
 	showFavoritesButton: true,
+	showLibrariesInToolbar: true,
 	mergeContinueWatchingNextUp: false,
 	backdropBlurHome: 20,
 	backdropBlurDetail: 20,
