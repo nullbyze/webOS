@@ -22,8 +22,11 @@ const selectMediaSource = (mediaSources, capabilities, options) => {
 		let score = 0;
 		const playMethodResult = getPlayMethod(source, capabilities);
 
-		if (playMethodResult === PlayMethod.DirectPlay) score += 100;
-		else if (playMethodResult === PlayMethod.DirectStream) score += 50;
+		if (playMethodResult === PlayMethod.DirectPlay) score += 1000;
+		else if (playMethodResult === PlayMethod.DirectStream) score += 500;
+
+		if (source.SupportsDirectPlay) score += 200;
+		if (source.SupportsDirectStream) score += 100;
 
 		const videoStream = source.MediaStreams?.find(s => s.Type === 'Video');
 		if (videoStream) {
@@ -46,21 +49,48 @@ const selectMediaSource = (mediaSources, capabilities, options) => {
 			else if (audioStream.Channels >= 6) score += 5;
 		}
 
+		console.log('[playback] Media source scored:', {
+			id: source.Id,
+			container: source.Container,
+			score,
+			playMethod: playMethodResult,
+			serverDirectPlay: source.SupportsDirectPlay,
+			serverDirectStream: source.SupportsDirectStream
+		});
+
 		return {source, score, playMethod: playMethodResult};
 	});
 
 	scored.sort((a, b) => b.score - a.score);
+	console.log('[playback] Selected media source:', scored[0].source.Id, 'with score:', scored[0].score);
 	return scored[0].source;
 };
 
 const determinePlayMethod = (mediaSource, capabilities) => {
-	if (mediaSource.SupportsDirectPlay) {
-		const computed = getPlayMethod(mediaSource, capabilities);
-		if (computed === PlayMethod.DirectPlay) {
-			return PlayMethod.DirectPlay;
-		}
+	// First check what our client-side capability check says
+	const computedMethod = getPlayMethod(mediaSource, capabilities);
+	console.log('[playback] determinePlayMethod - computed:', computedMethod, 
+		'serverDirectPlay:', mediaSource.SupportsDirectPlay,
+		'serverDirectStream:', mediaSource.SupportsDirectStream,
+		'hasTranscodingUrl:', !!mediaSource.TranscodingUrl);
+	
+	// If client says we need transcode, we MUST transcode
+	// Don't fall back to DirectStream if audio/video isn't compatible
+	if (computedMethod === PlayMethod.Transcode) {
+		return PlayMethod.Transcode;
+	}
+	
+	// Client says DirectPlay is OK
+	if (computedMethod === PlayMethod.DirectPlay && mediaSource.SupportsDirectPlay) {
+		return PlayMethod.DirectPlay;
+	}
+	
+	// Client says DirectStream is OK
+	if (computedMethod === PlayMethod.DirectStream && mediaSource.SupportsDirectStream) {
+		return PlayMethod.DirectStream;
 	}
 
+	// Fallback
 	if (mediaSource.SupportsDirectStream) {
 		return PlayMethod.DirectStream;
 	}
@@ -71,12 +101,15 @@ const determinePlayMethod = (mediaSource, capabilities) => {
 const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod) => {
 	const serverUrl = jellyfinApi.getServerUrl();
 	const apiKey = jellyfinApi.getApiKey();
+	const deviceId = jellyfinApi.getDeviceId();
+	const container = (mediaSource.Container || '').toLowerCase();
 
 	console.log('[playback] buildPlaybackUrl:', {
 		itemId,
 		mediaSourceId: mediaSource?.Id,
 		playSessionId,
 		playMethod,
+		container,
 		serverUrl,
 		apiKeyType: typeof apiKey,
 		apiKeyLength: apiKey?.length
@@ -85,9 +118,19 @@ const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod) => {
 	if (playMethod === PlayMethod.DirectPlay) {
 		const params = new URLSearchParams();
 		params.append('Static', 'true');
-		params.append('MediaSourceId', mediaSource.Id);
+		params.append('mediaSourceId', mediaSource.Id);
+		params.append('deviceId', deviceId);
 		params.append('api_key', apiKey);
-		const url = `${serverUrl}/Videos/${itemId}/stream?${params.toString()}`;
+		// Include ETag if available
+		if (mediaSource.ETag) {
+			params.append('Tag', mediaSource.ETag);
+		}
+		// Include LiveStreamId if available
+		if (mediaSource.LiveStreamId) {
+			params.append('LiveStreamId', mediaSource.LiveStreamId);
+		}
+		// Include container extension for proper MIME type detection
+		const url = `${serverUrl}/Videos/${itemId}/stream.${container}?${params.toString()}`;
 		console.log('[playback] DirectPlay URL:', url);
 		return url;
 	}
@@ -102,9 +145,14 @@ const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod) => {
 	}
 
 	if (mediaSource.TranscodingUrl) {
-		const url = mediaSource.TranscodingUrl.startsWith('http')
-			? mediaSource.TranscodingUrl
-			: `${serverUrl}${mediaSource.TranscodingUrl}`;
+		let transcodeUrl = mediaSource.TranscodingUrl;
+		
+		// Clean up any malformed query string (e.g., ?& or &&)
+		transcodeUrl = transcodeUrl.replace(/\?&/g, '?').replace(/&&/g, '&');
+		
+		const url = transcodeUrl.startsWith('http')
+			? transcodeUrl
+			: `${serverUrl}${transcodeUrl}`;
 		return url.includes('api_key') ? url : `${url}&api_key=${apiKey}`;
 	}
 
@@ -166,11 +214,17 @@ const extractChapters = (mediaSource) => {
 	}));
 };
 
+// Default bitrate for transcoding: 20 Mbps (reasonable for 1080p content)
+const DEFAULT_MAX_BITRATE = 20000000;
+
 export const getPlaybackInfo = async (itemId, options = {}) => {
 	const deviceProfile = await getJellyfinDeviceProfile();
 	const capabilities = await getDeviceCapabilities();
 
-	const playbackInfo = await jellyfinApi.api.getPlaybackInfo(itemId, {
+	// Use provided bitrate or default (0 means no limit for direct play, but we need a limit for transcode)
+	const maxBitrate = options.maxBitrate || DEFAULT_MAX_BITRATE;
+
+	let playbackInfo = await jellyfinApi.api.getPlaybackInfo(itemId, {
 		DeviceProfile: deviceProfile,
 		StartTimeTicks: options.startPositionTicks || 0,
 		AutoOpenLiveStream: true,
@@ -179,7 +233,7 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 		EnableTranscoding: options.enableTranscoding !== false,
 		AudioStreamIndex: options.audioStreamIndex,
 		SubtitleStreamIndex: options.subtitleStreamIndex,
-		MaxStreamingBitrate: options.maxBitrate,
+		MaxStreamingBitrate: maxBitrate,
 		MediaSourceId: options.mediaSourceId
 	});
 
@@ -187,8 +241,55 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 		throw new Error('No playable media source found');
 	}
 
-	const mediaSource = selectMediaSource(playbackInfo.MediaSources, capabilities, options);
-	const playMethod = determinePlayMethod(mediaSource, capabilities);
+	let mediaSource = selectMediaSource(playbackInfo.MediaSources, capabilities, options);
+	let playMethod = determinePlayMethod(mediaSource, capabilities);
+	
+	// Log video stream info including HDR type
+	const videoStream = mediaSource.MediaStreams?.find(s => s.Type === 'Video');
+	console.log('[playback] Video stream info:', {
+		codec: videoStream?.Codec,
+		profile: videoStream?.Profile,
+		level: videoStream?.Level,
+		width: videoStream?.Width,
+		height: videoStream?.Height,
+		videoRangeType: videoStream?.VideoRangeType,
+		colorPrimaries: videoStream?.ColorPrimaries,
+		colorTransfer: videoStream?.ColorTransfer,
+		colorSpace: videoStream?.ColorSpace,
+		bitDepth: videoStream?.BitDepth
+	});
+	console.log('[playback] HDR capabilities:', {
+		hdr10: capabilities.hdr10,
+		hlg: capabilities.hlg,
+		dolbyVision: capabilities.dolbyVision
+	});
+	
+	// If we determined we need transcoding but server didn't provide a TranscodingUrl,
+	// re-request with DirectPlay/DirectStream disabled to force transcoding
+	if (playMethod === PlayMethod.Transcode && !mediaSource.TranscodingUrl) {
+		console.log('[playback] Need transcode but no TranscodingUrl - re-requesting with transcoding forced');
+		playbackInfo = await jellyfinApi.api.getPlaybackInfo(itemId, {
+			DeviceProfile: deviceProfile,
+			StartTimeTicks: options.startPositionTicks || 0,
+			AutoOpenLiveStream: true,
+			EnableDirectPlay: false,
+			EnableDirectStream: false,
+			EnableTranscoding: true,
+			AudioStreamIndex: options.audioStreamIndex,
+			SubtitleStreamIndex: options.subtitleStreamIndex,
+			MaxStreamingBitrate: maxBitrate,
+			MediaSourceId: options.mediaSourceId
+		});
+		
+		if (!playbackInfo.MediaSources?.length) {
+			throw new Error('No playable media source found after forcing transcode');
+		}
+		
+		mediaSource = playbackInfo.MediaSources[0];
+		playMethod = PlayMethod.Transcode;
+		console.log('[playback] After forcing transcode - TranscodingUrl:', mediaSource.TranscodingUrl ? 'present' : 'none');
+	}
+	
 	const url = buildPlaybackUrl(itemId, mediaSource, playbackInfo.PlaySessionId, playMethod);
 	const audioStreams = extractAudioStreams(mediaSource);
 	const subtitleStreams = extractSubtitleStreams(mediaSource);
@@ -236,6 +337,20 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 		defaultAudioStreamIndex: mediaSource.DefaultAudioStreamIndex,
 		defaultSubtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex
 	};
+};
+
+export const getPlaybackInfoWithFallback = async (itemId, options = {}) => {
+	try {
+		return await getPlaybackInfo(itemId, options);
+	} catch (error) {
+		console.warn('[playback] Primary playback failed, trying fallback:', error.message);
+
+		return await getPlaybackInfo(itemId, {
+			...options,
+			enableDirectPlay: false,
+			enableDirectStream: false
+		});
+	}
 };
 
 export const getSubtitleUrl = (subtitleStream) => {
@@ -509,6 +624,7 @@ export const getIntroMarkers = getMediaSegments;
 export default {
 	PlayMethod,
 	getPlaybackInfo,
+	getPlaybackInfoWithFallback,
 	getPlaybackUrl,
 	getSubtitleUrl,
 	getChapterImageUrl,

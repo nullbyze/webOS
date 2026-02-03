@@ -268,6 +268,16 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 
 	useEffect(() => {
 		const videoElement = videoRef.current;
+		console.log('[Player] Main useEffect running with deps:', {
+			itemId: item?.Id,
+			selectedQuality,
+			maxBitrate: settings.maxBitrate,
+			preferTranscode: settings.preferTranscode,
+			subtitleMode: settings.subtitleMode,
+			skipIntro: settings.skipIntro,
+			initialAudioIndex,
+			initialSubtitleIndex
+		});
 
 		const loadMedia = async () => {
 			setIsLoading(true);
@@ -365,6 +375,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		loadMedia();
 
 		return () => {
+			console.log('[Player] Cleanup running - unmounting or re-rendering');
 			playback.stopProgressReporting();
 			playback.stopHealthMonitoring();
 
@@ -379,6 +390,68 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 			cleanupVideoElement(videoElement);
 		};
 	}, [item, selectedQuality, settings.maxBitrate, settings.preferTranscode, settings.subtitleMode, settings.skipIntro, initialAudioIndex, initialSubtitleIndex]);
+
+	// Log when mediaUrl changes
+	useEffect(() => {
+		if (mediaUrl) {
+			console.log('[Player] mediaUrl set:', mediaUrl);
+		}
+	}, [mediaUrl]);
+
+	// Set video source and attributes properly for webOS
+	// Must also depend on isLoading because video element only exists when !isLoading
+	useEffect(() => {
+		const video = videoRef.current;
+		console.log('[Player] Video src useEffect - video exists:', !!video, 'mediaUrl:', !!mediaUrl, 'isLoading:', isLoading);
+
+		if (!video || !mediaUrl || isLoading) return;
+
+		console.log('[Player] Setting video src via ref:', mediaUrl);
+		console.log('[Player] PlayMethod:', playMethod, 'MimeType:', mimeType);
+
+		// Set webOS-specific attributes that React doesn't handle well
+		video.setAttribute('webkit-playsinline', '');
+		video.setAttribute('playsinline', '');
+		video.setAttribute('preload', 'auto');
+		// Note: Don't set crossOrigin for local Jellyfin servers - it can break webOS 4
+
+		// For HLS transcoding, we need to prime the stream by pre-fetching the manifest
+		const isHls = mediaUrl.includes('.m3u8') || mimeType === 'application/x-mpegURL';
+		
+		const setSourceAndPlay = async () => {
+			// For HLS transcode, pre-fetch the manifest to ensure transcode is ready
+			if (isHls && playMethod === playback.PlayMethod.Transcode) {
+				console.log('[Player] Pre-fetching HLS manifest to prime transcode...');
+				try {
+					const response = await fetch(mediaUrl);
+					if (response.ok) {
+						const manifestText = await response.text();
+						console.log('[Player] HLS manifest pre-fetched, length:', manifestText.length);
+						// Small delay after pre-fetch to let server prepare segments
+						await new Promise(resolve => setTimeout(resolve, 500));
+					} else {
+						console.warn('[Player] HLS manifest pre-fetch failed:', response.status);
+					}
+				} catch (e) {
+					console.warn('[Player] HLS manifest pre-fetch error:', e.message);
+				}
+			}
+
+			console.log('[Player] Setting video source now');
+			// Set source and load
+			video.src = mediaUrl;
+			video.load();
+
+			// Attempt to play
+			video.play().then(() => {
+				console.log('[Player] play() promise resolved');
+			}).catch(err => {
+				console.error('[Player] play() promise rejected:', err);
+			});
+		};
+
+		setSourceAndPlay();
+	}, [mediaUrl, isLoading, mimeType, playMethod]);
 
 	useEffect(() => {
 		const video = videoRef.current;
@@ -482,6 +555,10 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 			if (positionRef.current > 0) {
 				videoRef.current.currentTime = positionRef.current / 10000000;
 			}
+			// Explicitly call play() - autoPlay attribute alone is not reliable on webOS
+			videoRef.current.play().catch(err => {
+				console.error('[Player] Failed to start playback:', err);
+			});
 		}
 	}, []);
 
@@ -594,6 +671,14 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 					errorMessage = 'An unknown playback error occurred.';
 			}
 			console.error('[Player] Playback error:', video.error.code, video.error.message);
+			console.error('[Player] Error details:', {
+				code: video.error.code,
+				message: video.error.message,
+				currentSrc: video.currentSrc,
+				readyState: video.readyState,
+				networkState: video.networkState,
+				playMethod: playMethod
+			});
 		} else {
 			console.error('[Player] Playback error (no error object)');
 		}
@@ -612,6 +697,10 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				});
 
 				if (result.url) {
+					// Give the server a moment to prepare the transcode stream
+					console.log('[Player] Waiting for transcode to initialize...');
+					await new Promise(resolve => setTimeout(resolve, 1500));
+					
 					setMediaUrl(result.url);
 					setPlayMethod(result.playMethod);
 					playSessionRef.current = result.playSessionId;
@@ -900,12 +989,19 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 	return (
 		<div className={css.container} onClick={showControls}>
 			{/* Video Element - Hardware accelerated on webOS */}
+			{/* Source is set via useEffect for proper webOS compatibility */}
 			<video
 				ref={videoRef}
 				className={css.videoPlayer}
-				src={mediaUrl}
 				autoPlay
+				onLoadStart={() => console.log('[Player] Video loadstart event')}
+				onLoadedData={() => console.log('[Player] Video loadeddata event')}
 				onLoadedMetadata={handleLoadedMetadata}
+				onCanPlay={() => console.log('[Player] Video canplay event')}
+				onCanPlayThrough={() => console.log('[Player] Video canplaythrough event')}
+				onStalled={() => console.log('[Player] Video stalled event')}
+				onSuspend={() => console.log('[Player] Video suspend event')}
+				onAbort={() => console.log('[Player] Video abort event')}
 				onPlay={handlePlay}
 				onPause={handlePause}
 				onTimeUpdate={handleTimeUpdate}
@@ -927,15 +1023,10 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				</div>
 			)}
 
-			{/* Playback Indicators */}
-			{(playbackRate !== 1 || playMethod) && (
+			{/* Playback Speed Indicator */}
+			{playbackRate !== 1 && (
 				<div className={css.playbackIndicators}>
-					{playbackRate !== 1 && <div className={css.speedIndicator}>{playbackRate}x</div>}
-					{playMethod && (
-						<div className={css.playMethodIndicator}>
-							{playMethod === 'DirectPlay' ? 'Direct' : playMethod === 'DirectStream' ? 'Remux' : 'Transcode'}
-						</div>
-					)}
+					<div className={css.speedIndicator}>{playbackRate}x</div>
 				</div>
 			)}
 

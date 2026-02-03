@@ -81,21 +81,24 @@ export const testVp9Support = (lunaResult = null, webosVersion = 4) => {
 	return webosVersion >= 4;
 };
 
-export const testDtsSupport = () => {
-	// All versions support DTS in at least MKV container
+export const testDtsSupport = (webosVersion) => {
+	// DTS audio is not supported by LG TV 2020-2022 (webOS 5.0, 6.0 and 22) models
+	if (webosVersion >= 5 && webosVersion < 23) {
+		return false;
+	}
 	return true;
 };
 
 // Check if DTS is supported in a specific container based on webOS version
 export const testDtsInContainer = (webosVersion, container) => {
+	if (!testDtsSupport(webosVersion)) {
+		return false;
+	}
+
 	const containerLower = (container || '').toLowerCase();
 
 	if (webosVersion >= 23) {
 		return ['mkv', 'matroska', 'mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mts', 'm2ts'].includes(containerLower);
-	}
-
-	if (webosVersion >= 5) {
-		return containerLower === 'mkv' || containerLower === 'matroska';
 	}
 
 	return ['mkv', 'matroska', 'avi'].includes(containerLower);
@@ -173,16 +176,27 @@ export const getDeviceCapabilities = async () => {
 		uhd8K: cfg['tv.hw.panelResolution'] === '8K' || deviceInfoData.uhd8K || false,
 		oled: cfg['tv.model.oled'] === true || deviceInfoData.oled || false,
 
-		hdr10: cfg['tv.model.supportHDR'] === true,
+		// HDR10/HLG: All webOS 4+ TVs support HDR10 and HLG via HEVC Main10 profile
+		// webOS TVs are known to support HDR10
+		// Luna API tv.model.supportHDR may not be available on older models
+		hdr10: cfg['tv.model.supportHDR'] === true || webosVersion >= 4,
 		hdr10Plus: cfg['tv.nvm.support.edid.hdr10plus'] === true || webosVersion >= 6,
-		hlg: cfg['tv.config.supportHLG'] === true || cfg['tv.model.supportHDR'] === true,
+		hlg: cfg['tv.config.supportHLG'] === true || cfg['tv.model.supportHDR'] === true || webosVersion >= 4,
+		
+		// Dolby Vision: Only enabled if Luna API confirms support
+		// webOS 4+ can play DV Profile 8 fallback layers (HDR10/SDR) even without native DV
 		dolbyVision: cfg['tv.config.supportDolbyHDRContents'] === true,
 
 		dolbyAtmos: cfg['tv.conti.supportDolbyAtmos'] === true || cfg['tv.config.supportDolbyAtmos'] === true,
 		dts: testDtsSupport(webosVersion),
 		ac3: testAc3Support(),
-		eac3: true,
-		truehd: cfg['tv.conti.supportDolbyAtmos'] === true,
+		// E-AC3: webOS 4 handles it, but webOS 5 has issues with some streams, go figure
+		// Disabled for webOS 5 to force transcoding to AAC which is more reliable
+		eac3: webosVersion !== 5,
+		// TrueHD/DTS-HD: webOS can only PASSTHROUGH these to an AV receiver, not decode internally
+		// Setting to false by default - users with AV receivers would need a setting to enable. TODO: Add setting later probably
+		truehd: false,
+		dtshd: false,
 
 		hevc: lunaHevc === true || (lunaHevc !== false && testHevcSupport(null, webosVersion)),
 		av1: lunaAv1 === true || testAv1Support(null, webosVersion),
@@ -202,144 +216,342 @@ export const getDeviceCapabilities = async () => {
 		ddrSize: cfg['tv.hw.ddrSize'] || 0
 	};
 
+	// Log HDR detection details for debugging
+	console.log('[deviceProfile] HDR detection:', {
+		webosVersion,
+		'tv.model.supportHDR': cfg['tv.model.supportHDR'],
+		'tv.config.supportDolbyHDRContents': cfg['tv.config.supportDolbyHDRContents'],
+		'tv.config.supportHLG': cfg['tv.config.supportHLG'],
+		'tv.nvm.support.edid.hdr10plus': cfg['tv.nvm.support.edid.hdr10plus'],
+		resultHdr10: cachedCapabilities.hdr10,
+		resultHlg: cachedCapabilities.hlg,
+		resultHdr10Plus: cachedCapabilities.hdr10Plus,
+		resultDolbyVision: cachedCapabilities.dolbyVision,
+		note: 'HDR10/HLG enabled for all webOS 4+ per'
+	});
 	console.log('[deviceProfile] Capabilities:', cachedCapabilities);
 	return cachedCapabilities;
 };
 
 const buildVideoRangeTypes = (caps) => {
+	// Base: SDR always supported
 	let rangeTypes = ['SDR'];
 
+	// webOS 4+ without native Dolby Vision can still play DV content
+	// using the SDR fallback layer (DOVIWithSDR)
+	const isWebOsWithoutDV = caps.webosVersion >= 4 && !caps.dolbyVision;
+	if (isWebOsWithoutDV) {
+		rangeTypes.push('DOVIWithSDR');
+	}
+
+	// HDR10 support (all webOS 4+ TVs)
 	if (caps.hdr10) {
 		rangeTypes.push('HDR10', 'HDR10Plus');
+		
+		// webOS without native DV can play HDR10 fallback from DV content
+		if (isWebOsWithoutDV) {
+			rangeTypes.push('DOVIWithHDR10', 'DOVIWithHDR10Plus', 'DOVIWithEL', 'DOVIWithELHDR10Plus', 'DOVIInvalid');
+		}
 	}
 
+	// HLG support (all webOS 4+ TVs)
 	if (caps.hlg) {
 		rangeTypes.push('HLG');
+		
+		if (isWebOsWithoutDV) {
+			rangeTypes.push('DOVIWithHLG');
+		}
 	}
 
+	// Native Dolby Vision support (only if Luna API confirms)
 	if (caps.dolbyVision) {
+		// DV Profile 5 (single layer) and Profile 8 (with fallback layers)
 		rangeTypes.push('DOVI', 'DOVIWithHDR10', 'DOVIWithHLG', 'DOVIWithSDR', 'DOVIWithHDR10Plus');
+		// webOS can play fallback of Profile 7 and most invalid profiles
 		rangeTypes.push('DOVIWithEL', 'DOVIWithELHDR10Plus', 'DOVIInvalid');
 	}
 
+	console.log('[deviceProfile] buildVideoRangeTypes:', rangeTypes.join('|'), 
+		'(webOS:', caps.webosVersion, 'hdr10:', caps.hdr10, 'hlg:', caps.hlg, 'dv:', caps.dolbyVision, ')');
 	return rangeTypes.join('|');
+};
+
+const buildDirectPlayProfiles = (caps) => {
+	const profiles = [];
+
+	const mp4VideoCodecs = ['h264'];
+	if (caps.hevc) mp4VideoCodecs.push('hevc');
+	if (caps.vp9) mp4VideoCodecs.push('vp9');
+	if (caps.av1) mp4VideoCodecs.push('av1');
+
+	// Build audio codecs based on actual device capabilities
+	const videoAudioCodecs = ['aac', 'mp3', 'flac', 'pcm_s16le', 'pcm_s24le'];
+	if (caps.ac3) videoAudioCodecs.push('ac3');
+	if (caps.eac3) videoAudioCodecs.push('eac3');
+	if (caps.dts) {
+		videoAudioCodecs.push('dca', 'dts');
+	}
+	
+	console.log('[deviceProfile] Building DirectPlay profiles - caps.eac3:', caps.eac3, 'caps.webosVersion:', caps.webosVersion);
+	console.log('[deviceProfile] videoAudioCodecs:', videoAudioCodecs);
+	if (caps.truehd) videoAudioCodecs.push('truehd');
+	if (caps.webosVersion >= 24) videoAudioCodecs.push('opus');
+	videoAudioCodecs.push('vorbis');
+
+	const webmVideoCodecs = ['vp8'];
+	if (caps.vp9) webmVideoCodecs.push('vp9');
+	if (caps.av1) webmVideoCodecs.push('av1');
+	const webmAudioCodecs = ['vorbis'];
+	if (caps.webosVersion >= 24) webmAudioCodecs.push('opus');
+
+	if (caps.webm) {
+		profiles.push({
+			Container: 'webm',
+			Type: 'Video',
+			VideoCodec: webmVideoCodecs.join(','),
+			AudioCodec: webmAudioCodecs.join(',')
+		});
+	}
+
+	profiles.push({
+		Container: 'mp4,m4v',
+		Type: 'Video',
+		VideoCodec: mp4VideoCodecs.join(','),
+		AudioCodec: videoAudioCodecs.join(',')
+	});
+
+	if (caps.mkv) {
+		profiles.push({
+			Container: 'mkv',
+			Type: 'Video',
+			VideoCodec: mp4VideoCodecs.join(','),
+			AudioCodec: videoAudioCodecs.join(',')
+		});
+	}
+
+	if (caps.ts) {
+		const tsVideoCodecs = ['h264'];
+		if (caps.hevc) tsVideoCodecs.push('hevc');
+		tsVideoCodecs.push('vc1', 'mpeg2video');
+
+		profiles.push({
+			Container: 'ts,mpegts',
+			Type: 'Video',
+			VideoCodec: tsVideoCodecs.join(','),
+			AudioCodec: videoAudioCodecs.join(',')
+		});
+	}
+
+	profiles.push({
+		Container: 'm2ts',
+		Type: 'Video',
+		VideoCodec: 'h264,vc1,mpeg2video',
+		AudioCodec: videoAudioCodecs.join(',')
+	});
+
+	if (caps.asf || caps.wmv) {
+		profiles.push({
+			Container: 'asf',
+			Type: 'Video',
+			VideoCodec: '',
+			AudioCodec: ''
+		});
+		profiles.push({
+			Container: 'wmv',
+			Type: 'Video',
+			VideoCodec: '',
+			AudioCodec: ''
+		});
+	}
+
+	if (caps.avi) {
+		const aviVideoCodecs = ['h264'];
+		if (caps.hevc) aviVideoCodecs.push('hevc');
+
+		profiles.push({
+			Container: 'avi',
+			Type: 'Video',
+			VideoCodec: aviVideoCodecs.join(','),
+			AudioCodec: videoAudioCodecs.join(',')
+		});
+	}
+
+	if (caps.mpg) {
+		profiles.push({
+			Container: 'mpg,mpeg',
+			Type: 'Video',
+			VideoCodec: '',
+			AudioCodec: ''
+		});
+	}
+
+	profiles.push({
+		Container: 'mov',
+		Type: 'Video',
+		VideoCodec: 'h264',
+		AudioCodec: videoAudioCodecs.join(',')
+	});
+
+	['mp3', 'flac', 'aac', 'ogg', 'wav', 'wma'].forEach(format => {
+		profiles.push({
+			Container: format,
+			Type: 'Audio'
+		});
+	});
+
+	if (caps.webosVersion >= 24) {
+		profiles.push({
+			Container: 'webm',
+			AudioCodec: 'opus',
+			Type: 'Audio'
+		});
+	}
+
+	profiles.push({
+		Container: 'm4a',
+		AudioCodec: 'aac',
+		Type: 'Audio'
+	});
+
+	profiles.push({
+		Container: 'm4b',
+		AudioCodec: 'aac',
+		Type: 'Audio'
+	});
+
+	if (caps.nativeHls) {
+		profiles.push({
+			Container: 'hls',
+			Type: 'Video',
+			VideoCodec: mp4VideoCodecs.join(','),
+			AudioCodec: videoAudioCodecs.join(',')
+		});
+	}
+
+	return profiles;
 };
 
 export const getJellyfinDeviceProfile = async () => {
 	const caps = await getDeviceCapabilities();
 
 	const videoRangeTypes = buildVideoRangeTypes(caps);
+	const directPlayProfiles = buildDirectPlayProfiles(caps);
 
-	const videoCodecs = ['h264'];
-	if (caps.hevc) videoCodecs.push('hevc');
-	if (caps.vp9) videoCodecs.push('vp9');
-	if (caps.av1) videoCodecs.push('av1');
-
-	const audioCodecs = ['aac', 'mp3', 'flac', 'pcm', 'wav'];
-
-	if (caps.webosVersion >= 24) audioCodecs.push('opus');
-	audioCodecs.push('vorbis');
-	if (caps.ac3) audioCodecs.push('ac3');
-	if (caps.eac3) audioCodecs.push('eac3');
-	if (caps.dts) {
-		audioCodecs.push('dts', 'dca');
-		if (caps.webosVersion >= 23) {
-			audioCodecs.push('dts-hd', 'dtshd');
-		}
-	}
-	if (caps.truehd) audioCodecs.push('truehd');
-
-	// Build container list from documented support
-	const videoContainers = [];
-	if (caps.mp4) videoContainers.push('mp4');
-	if (caps.m4v) videoContainers.push('m4v');
-	if (caps.mov) videoContainers.push('mov');
-	if (caps.avi) videoContainers.push('avi');
-	if (caps['3gp']) videoContainers.push('3gp', '3g2');
-	if (caps.mpg) videoContainers.push('mpg', 'mpeg');
-	if (caps.vob) videoContainers.push('vob');
-	if (caps.webm) videoContainers.push('webm');
-	if (caps.ts) videoContainers.push('ts', 'mpegts', 'mts', 'm2ts');
-	if (caps.mkv) videoContainers.push('mkv', 'matroska');
-	if (caps.asf) videoContainers.push('asf');
-	if (caps.wmv) videoContainers.push('wmv');
-
-	console.log('[deviceProfile] DirectPlayProfiles:', [{Container: videoContainers.join(','), VideoCodec: videoCodecs.join(','), AudioCodec: audioCodecs.join(',')}]);
-	console.log('[deviceProfile] Containers:', videoContainers);
-	console.log('[deviceProfile] Video codecs:', videoCodecs);
-	console.log('[deviceProfile] Audio codecs:', audioCodecs);
-
-	// Allow higher bitrates than documented specs since hardware often exceeds them
-	const maxBitrate = caps.uhd8K ? 200000000 : caps.uhd ? 120000000 : 80000000;
+	const maxStreamingBitrate = 120_000_000;
 	const maxAudioChannels = caps.dolbyAtmos ? '8' : '6';
 
-	const directPlayProfiles = [
-		{
-			Container: videoContainers.join(','),
-			Type: 'Video',
-			VideoCodec: videoCodecs.join(','),
-			AudioCodec: audioCodecs.join(',')
-		},
-		{
-			Container: 'mp3,flac,aac,m4a,ogg,opus,wav,wma',
-			Type: 'Audio'
-		}
-	];
+	console.log('[deviceProfile] Video Range Types:', videoRangeTypes, '(hdr10:', caps.hdr10, 'hlg:', caps.hlg, 'dolbyVision:', caps.dolbyVision, ')');
+	console.log('[deviceProfile] DirectPlayProfiles:', directPlayProfiles);
 
-	// HLS direct play - webOS 5+ supports full audio codec range
-	if (caps.nativeHls) {
-		const hlsAudioCodecs = caps.hlsAc3 ? audioCodecs.join(',') : 'aac,mp3';
-		directPlayProfiles.push({
-			Container: 'm3u8',
-			Type: 'Video',
-			VideoCodec: videoCodecs.join(','),
-			AudioCodec: hlsAudioCodecs
-		});
+	// Transcoding profiles based on webOS version
+	// webOS 5 (Chrome 68) has issues with native HLS - use HTTP progressive MP4 instead
+	// webOS 6+ should handle HLS fine
+	let transcodingProfiles;
+	
+	if (caps.webosVersion === 5) {
+		console.log('[deviceProfile] Using HTTP progressive MP4 transcoding for webOS 5');
+		// Use progressive MP4 download for webOS 5
+		transcodingProfiles = [
+			{
+				Container: 'mp4',
+				Type: 'Video',
+				AudioCodec: 'aac,ac3',
+				VideoCodec: 'h264',
+				Context: 'Streaming',
+				Protocol: 'http',
+				MaxAudioChannels: maxAudioChannels
+			},
+			{
+				Container: 'ts',
+				Type: 'Video',
+				AudioCodec: 'aac,ac3',
+				VideoCodec: 'h264',
+				Context: 'Streaming',
+				Protocol: 'http',
+				MaxAudioChannels: maxAudioChannels
+			},
+			{
+				Container: 'mp3',
+				Type: 'Audio',
+				AudioCodec: 'mp3',
+				Context: 'Streaming',
+				Protocol: 'http'
+			},
+			{
+				Container: 'aac',
+				Type: 'Audio',
+				AudioCodec: 'aac',
+				Context: 'Streaming',
+				Protocol: 'http'
+			}
+		];
+	} else {
+		// Use HLS for other webOS versions
+		const hlsContainer = 'ts';
+		const hlsAudioCodecs = caps.ac3 ? 'aac,mp2,ac3' : 'aac,mp2';
+		
+		transcodingProfiles = [
+			{
+				Container: hlsContainer,
+				Type: 'Video',
+				AudioCodec: hlsAudioCodecs,
+				VideoCodec: 'h264',
+				Context: 'Streaming',
+				Protocol: 'hls',
+				MaxAudioChannels: maxAudioChannels,
+				MinSegments: '1',
+				BreakOnNonKeyFrames: false
+			},
+			{
+				Container: 'ts',
+				Type: 'Video',
+				AudioCodec: 'aac,mp2,ac3',
+				VideoCodec: 'h264',
+				Context: 'Streaming',
+				Protocol: 'hls',
+				MaxAudioChannels: '6',
+				MinSegments: '1',
+				BreakOnNonKeyFrames: false
+			},
+			{
+				Container: 'mp4',
+				Type: 'Video',
+				AudioCodec: 'aac,ac3',
+				VideoCodec: 'h264',
+				Context: 'Static'
+			},
+			{
+				Container: 'mp3',
+				Type: 'Audio',
+				AudioCodec: 'mp3',
+				Context: 'Streaming',
+				Protocol: 'http'
+			},
+			{
+				Container: 'aac',
+				Type: 'Audio',
+				AudioCodec: 'aac',
+				Context: 'Streaming',
+				Protocol: 'http'
+			}
+		];
 	}
 
-	const transcodingProfiles = [
-		{
-			Container: 'ts',
-			Type: 'Video',
-			AudioCodec: caps.ac3 ? 'aac,ac3,eac3' : 'aac',
-			VideoCodec: caps.hevc ? 'hevc,h264' : 'h264',
-			Context: 'Streaming',
-			Protocol: 'hls',
-			MaxAudioChannels: maxAudioChannels,
-			MinSegments: caps.webosVersion >= 5 ? '1' : '2',
-			SegmentLength: caps.webosVersion >= 5 ? '3' : '6',
-			BreakOnNonKeyFrames: false,
-			MaxWidth: caps.uhd8K ? 7680 : caps.uhd ? 3840 : 1920,
-			MaxHeight: caps.uhd8K ? 4320 : caps.uhd ? 2160 : 1080
-		},
-		{
-			Container: 'mp4',
-			Type: 'Video',
-			AudioCodec: 'aac,ac3',
-			VideoCodec: 'h264',
-			Context: 'Static',
-			MaxWidth: caps.uhd8K ? 7680 : caps.uhd ? 3840 : 1920,
-			MaxHeight: caps.uhd8K ? 4320 : caps.uhd ? 2160 : 1080
-		},
-		{
-			Container: 'mp3',
-			Type: 'Audio',
-			AudioCodec: 'mp3',
-			Context: 'Streaming',
-			Protocol: 'http'
-		}
-	];
+	// H.264 level based on webOS version and panel resolution
+	// Per LG docs: webOS 4+ UHD models support H.264 Level 5.1 at 3840x2160@30P
+	// Non-UHD models: Level 4.2 for 1080p@60P
+	const h264MaxLevel = (caps.webosVersion >= 4 && (caps.uhd || caps.uhd8K)) ? '51' : '42';
+	console.log('[deviceProfile] H.264 max level:', h264MaxLevel, '(webOS', caps.webosVersion, ', UHD:', caps.uhd, ')');
 
 	const codecProfiles = [
 		{
-			// H.264: Level 4.2 (1080p60), Level 5.1 (4K), SDR only
 			Type: 'Video',
 			Codec: 'h264',
 			Conditions: [
 				{
-					Condition: 'NotEquals',
-					Property: 'IsAnamorphic',
-					Value: 'true',
+					Condition: 'EqualsAny',
+					Property: 'VideoProfile',
+					Value: 'high|main|baseline|constrained baseline',
 					IsRequired: false
 				},
 				{
@@ -351,19 +563,7 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: caps.uhd ? '51' : '42',
-					IsRequired: false
-				},
-				{
-					Condition: 'LessThanEqual',
-					Property: 'VideoBitDepth',
-					Value: '8',
-					IsRequired: false
-				},
-				{
-					Condition: 'LessThanEqual',
-					Property: 'RefFrames',
-					Value: '16',
+					Value: h264MaxLevel,
 					IsRequired: false
 				}
 			]
@@ -373,17 +573,29 @@ export const getJellyfinDeviceProfile = async () => {
 			Codec: 'hevc',
 			Conditions: [
 				{
-					Condition: 'LessThanEqual',
-					Property: 'VideoLevel',
-					Value: caps.uhd8K ? '183' : caps.uhd ? '153' : '123',
+					Condition: 'EqualsAny',
+					Property: 'VideoProfile',
+					Value: 'main|main 10',
+					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: videoRangeTypes,
 					IsRequired: false
 				},
 				{
 					Condition: 'LessThanEqual',
-					Property: 'VideoBitDepth',
-					Value: caps.hdr10 || caps.dolbyVision ? '10' : '8',
+					Property: 'VideoLevel',
+					Value: '153',
 					IsRequired: false
-				},
+				}
+			]
+		},
+		{
+			Type: 'Video',
+			Codec: 'vp9',
+			Conditions: [
 				{
 					Condition: 'EqualsAny',
 					Property: 'VideoRangeType',
@@ -393,67 +605,42 @@ export const getJellyfinDeviceProfile = async () => {
 			]
 		},
 		{
-			Type: 'Audio',
+			Type: 'Video',
+			Codec: 'av1',
+			Conditions: [
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoProfile',
+					Value: 'main',
+					IsRequired: false
+				},
+				{
+					Condition: 'EqualsAny',
+					Property: 'VideoRangeType',
+					Value: videoRangeTypes,
+					IsRequired: false
+				},
+				{
+					Condition: 'LessThanEqual',
+					Property: 'VideoLevel',
+					Value: '15',
+					IsRequired: false
+				}
+			]
+		},
+		{
+			Type: 'VideoAudio',
+			Codec: 'flac',
 			Conditions: [
 				{
 					Condition: 'LessThanEqual',
 					Property: 'AudioChannels',
-					Value: maxAudioChannels,
+					Value: '2',
 					IsRequired: false
 				}
 			]
 		}
 	];
-
-	// AV1 (webOS 5+)
-	if (caps.av1) {
-		codecProfiles.push({
-			Type: 'Video',
-			Codec: 'av1',
-			Conditions: [
-				{
-					Condition: 'LessThanEqual',
-					Property: 'VideoLevel',
-					Value: caps.uhd8K ? '19' : '13',
-					IsRequired: false
-				},
-				{
-					Condition: 'LessThanEqual',
-					Property: 'VideoBitDepth',
-					Value: '10',
-					IsRequired: false
-				},
-				{
-					Condition: 'EqualsAny',
-					Property: 'VideoRangeType',
-					Value: videoRangeTypes,
-					IsRequired: false
-				}
-			]
-		});
-	}
-
-	// VP9 (webOS 4+)
-	if (caps.vp9) {
-		codecProfiles.push({
-			Type: 'Video',
-			Codec: 'vp9',
-			Conditions: [
-				{
-					Condition: 'LessThanEqual',
-					Property: 'VideoBitDepth',
-					Value: caps.hdr10 ? '10' : '8',
-					IsRequired: false
-				},
-				{
-					Condition: 'EqualsAny',
-					Property: 'VideoRangeType',
-					Value: videoRangeTypes,
-					IsRequired: false
-				}
-			]
-		});
-	}
 
 	const subtitleProfiles = [
 		{Format: 'vtt', Method: 'External'},
@@ -486,17 +673,15 @@ export const getJellyfinDeviceProfile = async () => {
 
 	console.log('[deviceProfile] Final profile:', {
 		webosVersion: caps.webosVersion,
-		videoCodecs,
-		audioCodecs,
-		videoContainers,
+		profileCount: directPlayProfiles.length,
 		hdr: { hdr10: caps.hdr10, dolbyVision: caps.dolbyVision, hlg: caps.hlg },
-		maxBitrate
+		maxStreamingBitrate
 	});
 
 	return {
 		Name: `Moonfin webOS ${caps.webosVersion}`,
-		MaxStreamingBitrate: maxBitrate,
-		MaxStaticBitrate: maxBitrate,
+		MaxStreamingBitrate: maxStreamingBitrate,
+		MaxStaticBitrate: maxStreamingBitrate,
 		MaxStaticMusicBitrate: 40000000,
 		MusicStreamingTranscodingBitrate: 384000,
 		DirectPlayProfiles: directPlayProfiles,

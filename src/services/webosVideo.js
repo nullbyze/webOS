@@ -82,7 +82,8 @@ const getDefaultCapabilities = () => {
 		vp9: webosVersion >= 4,
 		dts: webosVersion <= 4 || webosVersion >= 23,
 		ac3: true,
-		eac3: true,
+		// E-AC3: webOS 5 has issues decoding some E-AC3 streams
+		eac3: webosVersion !== 5,
 		truehd: false,
 		mp4: true,
 		m4v: true,
@@ -129,6 +130,22 @@ export const getMediaCapabilities = async () => {
 
 		const cfg = result.configs || {};
 		const webosVersion = getWebOSVersion();
+		
+		// HDR detection
+		// - All webOS 4+ TVs support HDR10 and HLG via HEVC Main10 profile
+		// - Dolby Vision only via Luna API confirmation
+		const hasHdr = cfg['tv.model.supportHDR'] === true || webosVersion >= 4;
+		const hasHlg = cfg['tv.config.supportHLG'] === true || hasHdr;
+		const hasDolbyVision = cfg['tv.config.supportDolbyHDRContents'] === true;
+		
+		console.log('[webosVideo] HDR detection:', {
+			webosVersion,
+			'tv.model.supportHDR': cfg['tv.model.supportHDR'],
+			'tv.config.supportDolbyHDRContents': cfg['tv.config.supportDolbyHDRContents'],
+			resultHdr10: hasHdr,
+			resultHlg: hasHlg,
+			resultDolbyVision: hasDolbyVision
+		});
 
 		return {
 			webosVersion,
@@ -136,10 +153,10 @@ export const getMediaCapabilities = async () => {
 			uhd: cfg['tv.hw.panelResolution'] === 'UD' || cfg['tv.hw.panelResolution'] === '8K',
 			uhd8K: cfg['tv.hw.panelResolution'] === '8K',
 			oled: cfg['tv.model.oled'] === true,
-			hdr10: cfg['tv.model.supportHDR'] === true,
+			hdr10: hasHdr,
 			hdr10Plus: cfg['tv.nvm.support.edid.hdr10plus'] === true || webosVersion >= 6,
-			hlg: cfg['tv.config.supportHLG'] === true || cfg['tv.model.supportHDR'] === true,
-			dolbyVision: cfg['tv.config.supportDolbyHDRContents'] === true,
+			hlg: hasHlg,
+			dolbyVision: hasDolbyVision,
 			dolbyAtmos: cfg['tv.conti.supportDolbyAtmos'] === true || cfg['tv.config.supportDolbyAtmos'] === true,
 			// Video codecs - use Luna API if available, fall back to version-based
 			hevc: cfg['tv.hw.supportCodecH265'] !== false && webosVersion >= 4,
@@ -147,8 +164,11 @@ export const getMediaCapabilities = async () => {
 			vp9: cfg['tv.hw.supportCodecVP9'] === true || webosVersion >= 4,
 			dts: webosVersion <= 4 || webosVersion >= 23,
 			ac3: true,
-			eac3: true,
-			truehd: cfg['tv.conti.supportDolbyAtmos'] === true,
+			// E-AC3: webOS 5 has issues decoding some E-AC3 streams
+			eac3: webosVersion !== 5,
+			// TrueHD/DTS-HD: webOS can only PASSTHROUGH these to AV receiver, not decode internally
+			truehd: false,
+			dtshd: false,
 			// Containers
 			mp4: true,
 			m4v: true,
@@ -175,11 +195,45 @@ export const getMediaCapabilities = async () => {
 };
 
 export const getPlayMethod = (mediaSource, capabilities) => {
-	if (!mediaSource) return 'Transcode';
+	console.log('[webosVideo] getPlayMethod called with capabilities.truehd:', capabilities?.truehd, 'capabilities.dtshd:', capabilities?.dtshd);
+	
+	if (!mediaSource) {
+		console.log('[webosVideo] No media source provided');
+		return 'Transcode';
+	}
 
 	const container = (mediaSource.Container || '').toLowerCase();
 	const videoStream = mediaSource.MediaStreams?.find(s => s.Type === 'Video');
-	const audioStream = mediaSource.MediaStreams?.find(s => s.Type === 'Audio');
+	
+	// Get the audio stream that will actually be used for playback
+	// Priority: DefaultAudioStreamIndex > first audio stream marked as default > first audio stream
+	const audioStreams = mediaSource.MediaStreams?.filter(s => s.Type === 'Audio') || [];
+	let audioStream = null;
+	if (mediaSource.DefaultAudioStreamIndex !== undefined && mediaSource.DefaultAudioStreamIndex !== null) {
+		audioStream = mediaSource.MediaStreams?.find(s => s.Index === mediaSource.DefaultAudioStreamIndex);
+	}
+	if (!audioStream) {
+		audioStream = audioStreams.find(s => s.IsDefault) || audioStreams[0];
+	}
+
+	console.log('[webosVideo] Media source analysis:', JSON.stringify({
+		container,
+		videoCodec: videoStream?.Codec,
+		defaultAudioIndex: mediaSource.DefaultAudioStreamIndex,
+		audioStreamIndex: audioStream?.Index,
+		audioCodec: audioStream?.Codec,
+		allAudioCodecs: audioStreams.map(s => ({ index: s.Index, codec: s.Codec, isDefault: s.IsDefault })),
+		videoBitrate: videoStream?.BitRate,
+		videoLevel: videoStream?.Level,
+		videoProfile: videoStream?.Profile,
+		videoWidth: videoStream?.Width,
+		videoHeight: videoStream?.Height,
+		videoBitDepth: videoStream?.BitDepth,
+		videoRangeType: videoStream?.VideoRangeType,
+		serverSupportsDirectPlay: mediaSource.SupportsDirectPlay,
+		serverSupportsDirectStream: mediaSource.SupportsDirectStream,
+		transcodingUrl: mediaSource.TranscodingUrl ? 'present' : 'none'
+	}));
 
 	// Build supported video codecs list
 	const videoCodec = (videoStream?.Codec || '').toLowerCase();
@@ -187,21 +241,23 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 	if (capabilities.hevc) supportedVideoCodecs.push('hevc', 'h265', 'hev1', 'hvc1');
 	if (capabilities.av1) supportedVideoCodecs.push('av1', 'av01');
 	if (capabilities.vp9) supportedVideoCodecs.push('vp9');
-	supportedVideoCodecs.push('vp8'); // VP8 supported in MKV on webOS 4+
+	supportedVideoCodecs.push('vp8');
 	if (capabilities.dolbyVision) supportedVideoCodecs.push('dvhe', 'dvh1', 'dovi');
 
 	// Build supported audio codecs list
 	const audioCodec = (audioStream?.Codec || '').toLowerCase();
-	const supportedAudioCodecs = ['aac', 'mp3', 'mp2', 'mp1', 'flac', 'pcm', 'lpcm', 'wav'];
+	const supportedAudioCodecs = ['aac', 'mp3', 'mp2', 'mp1', 'flac', 'pcm_s16le', 'pcm_s24le', 'lpcm', 'wav'];
 	if (capabilities.ac3) supportedAudioCodecs.push('ac3', 'dolby');
 	if (capabilities.eac3) supportedAudioCodecs.push('eac3', 'ec3');
 	if (capabilities.dts) supportedAudioCodecs.push('dts', 'dca', 'dts-hd', 'dtshd');
 	if (capabilities.truehd) supportedAudioCodecs.push('truehd', 'mlp');
-	// Opus only on webOS 24+
 	if (capabilities.webosVersion >= 24) supportedAudioCodecs.push('opus');
 	supportedAudioCodecs.push('vorbis', 'wma', 'amr', 'amrnb', 'amrwb');
+	
+	const audioOkResult = !audioCodec || supportedAudioCodecs.includes(audioCodec);
+	console.log('[webosVideo] Audio check: audioCodec=' + audioCodec + ' truehd=' + capabilities.truehd + ' inList=' + supportedAudioCodecs.includes(audioCodec) + ' audioOk=' + audioOkResult);
 
-	// Build supported containers list (based on LG documentation)
+	// Build supported containers list
 	const supportedContainers = ['mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mts', 'm2ts', 'avi', '3gp', '3g2', 'mpg', 'mpeg', 'vob', 'dat'];
 	if (capabilities.mkv) supportedContainers.push('mkv', 'matroska');
 	if (capabilities.webm) supportedContainers.push('webm');
@@ -210,7 +266,7 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 	if (capabilities.nativeHls) supportedContainers.push('m3u8', 'hls');
 
 	const videoOk = !videoCodec || supportedVideoCodecs.includes(videoCodec);
-	const audioOk = !audioCodec || supportedAudioCodecs.includes(audioCodec);
+	const audioOk = audioOkResult;
 	const containerOk = !container || supportedContainers.includes(container);
 
 	// HDR compatibility check
@@ -218,58 +274,70 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 	if (videoStream?.VideoRangeType) {
 		const rangeType = videoStream.VideoRangeType.toUpperCase();
 		if (rangeType.includes('DOLBY') || rangeType.includes('DV') || rangeType === 'DOVI') {
-			// Dolby Vision requires specific hardware support
 			hdrOk = capabilities.dolbyVision;
+			if (!hdrOk) console.log('[webosVideo] Dolby Vision not supported');
 		} else if (rangeType.includes('HDR10+') || rangeType === 'HDR10PLUS') {
-			// HDR10+ requires specific hardware support
-			hdrOk = capabilities.hdr10Plus || capabilities.hdr10; // Fall back to HDR10
+			hdrOk = capabilities.hdr10Plus || capabilities.hdr10;
+			if (!hdrOk) console.log('[webosVideo] HDR10+ not supported');
 		} else if (rangeType.includes('HDR') || rangeType === 'HDR10') {
 			hdrOk = capabilities.hdr10;
+			if (!hdrOk) console.log('[webosVideo] HDR10 not supported');
 		} else if (rangeType.includes('HLG')) {
-			hdrOk = capabilities.hlg || capabilities.hdr10; // HLG often works on HDR10 TVs
+			hdrOk = capabilities.hlg || capabilities.hdr10;
+			if (!hdrOk) console.log('[webosVideo] HLG not supported');
 		}
 	}
 
-	// Special check: DTS container restrictions by webOS version
+	// Bitrate check
+	let bitrateOk = true;
+	if (videoStream?.BitRate) {
+		const maxBitrate = capabilities.uhd8K ? 100000000 :
+						   capabilities.uhd ? 60000000 : 40000000;
+		bitrateOk = videoStream.BitRate <= maxBitrate;
+		if (!bitrateOk) {
+			console.log('[webosVideo] Bitrate exceeds limit:', videoStream.BitRate, '>', maxBitrate);
+		}
+	}
+
+	// DTS container restrictions by webOS version
 	let dtsContainerOk = true;
 	if (audioCodec && (audioCodec === 'dts' || audioCodec === 'dca' || audioCodec.startsWith('dts'))) {
 		const webosVersion = capabilities.webosVersion || 4;
-		if (webosVersion >= 23) {
-			// webOS 23+: DTS in MP4, MOV, MKV, TS (model-specific)
+		// DTS disabled for webOS 5-22
+		if (webosVersion >= 5 && webosVersion < 23) {
+			dtsContainerOk = false;
+		} else if (webosVersion >= 23) {
 			dtsContainerOk = ['mkv', 'matroska', 'mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mts', 'm2ts'].includes(container);
-		} else if (webosVersion >= 5) {
-			// webOS 5-22: DTS only in MKV container
-			dtsContainerOk = container === 'mkv' || container === 'matroska';
 		} else {
-			// webOS 4.x: DTS in AVI and MKV
 			dtsContainerOk = ['mkv', 'matroska', 'avi'].includes(container);
+		}
+		if (!dtsContainerOk) {
+			console.log('[webosVideo] DTS not supported in container:', container, 'for webOS', webosVersion);
 		}
 	}
 
-	console.log('[webosVideo] getPlayMethod check:', {
-		container,
-		videoCodec,
-		audioCodec,
-		videoRange: videoStream?.VideoRangeType,
+	console.log('[webosVideo] Compatibility check:', {
 		videoOk,
 		audioOk,
 		containerOk,
 		hdrOk,
-		dtsContainerOk,
-		supportedContainers,
-		supportedVideoCodecs,
-		supportedAudioCodecs,
-		serverSupportsDirectPlay: mediaSource.SupportsDirectPlay
+		bitrateOk,
+		dtsContainerOk
 	});
 
-	if (mediaSource.SupportsDirectPlay && videoOk && audioOk && containerOk && hdrOk && dtsContainerOk) {
+	if (mediaSource.SupportsDirectPlay && videoOk && audioOk && containerOk && hdrOk && bitrateOk && dtsContainerOk) {
+		console.log('[webosVideo] Result: DirectPlay');
 		return 'DirectPlay';
 	}
 
-	if (mediaSource.SupportsDirectStream && videoOk && containerOk) {
+	// DirectStream only remuxes - it cannot transcode audio
+	// So we need audioOk to be true for DirectStream
+	if (mediaSource.SupportsDirectStream && videoOk && audioOk && containerOk && bitrateOk) {
+		console.log('[webosVideo] Result: DirectStream');
 		return 'DirectStream';
 	}
 
+	console.log('[webosVideo] Result: Transcode');
 	return 'Transcode';
 };
 
@@ -370,7 +438,7 @@ export const getAudioOutputInfo = async () => {
 };
 
 /**
- * Release hardware video resources per WHATWG spec.
+ * Release hardware video resources
  * Critical on webOS due to limited hardware decoder instances.
  */
 export const cleanupVideoElement = (videoElement, options = {}) => {
@@ -381,6 +449,7 @@ export const cleanupVideoElement = (videoElement, options = {}) => {
 
 	try {
 		console.log('[webosVideo] Cleaning up video element resources');
+		console.log('[webosVideo] Cleanup called from:', new Error().stack);
 
 		if (!videoElement.paused) {
 			videoElement.pause();
