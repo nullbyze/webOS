@@ -160,6 +160,8 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 	const [selectedAudioIndex, setSelectedAudioIndex] = useState(null);
 	const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState(-1);
 	const [subtitleUrl, setSubtitleUrl] = useState(null);
+	const [subtitleTrackEvents, setSubtitleTrackEvents] = useState(null);
+	const [currentSubtitleText, setCurrentSubtitleText] = useState(null);
 	const [controlsVisible, setControlsVisible] = useState(false);
 	const [activeModal, setActiveModal] = useState(null);
 	const [playbackRate, setPlaybackRate] = useState(1);
@@ -317,31 +319,94 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				}
 
 				// Handle subtitles based on settings or initial selection
+				// On webOS, we fetch subtitle data as JSON and render via custom elements
+				// because native <track> elements don't work reliably
+				console.log('[Player] === SUBTITLE SELECTION START ===');
+				console.log('[Player] initialSubtitleIndex:', initialSubtitleIndex);
+				console.log('[Player] subtitleMode:', settings.subtitleMode);
+				console.log('[Player] availableSubtitles:', result.subtitleStreams?.length || 0);
+				if (result.subtitleStreams) {
+					result.subtitleStreams.forEach((s, i) => {
+						console.log('[Player] Subtitle ' + i + ': index=' + s.index + ' codec=' + s.codec + ' lang=' + s.language + ' default=' + s.isDefault + ' forced=' + s.isForced + ' text=' + s.isTextBased);
+					});
+				}
+
+				// Helper to load subtitle data
+				const loadSubtitleData = async (sub) => {
+					console.log('[Player] loadSubtitleData called for:', sub?.index, 'isTextBased:', sub?.isTextBased);
+					if (sub && sub.isTextBased) {
+						try {
+							console.log('[Player] Fetching subtitle JSON data...');
+							const data = await playback.fetchSubtitleData(sub);
+							console.log('[Player] fetchSubtitleData returned:', data ? 'data' : 'null', 'events:', data?.TrackEvents?.length);
+							if (data && data.TrackEvents) {
+								setSubtitleTrackEvents(data.TrackEvents);
+								console.log('[Player] Set subtitleTrackEvents with', data.TrackEvents.length, 'events');
+							} else {
+								console.log('[Player] No TrackEvents in response');
+								setSubtitleTrackEvents(null);
+							}
+						} catch (err) {
+							console.error('[Player] Error fetching subtitle data:', err);
+							setSubtitleTrackEvents(null);
+						}
+					} else {
+						console.log('[Player] Not loading subs - sub:', !!sub, 'isTextBased:', sub?.isTextBased);
+						setSubtitleTrackEvents(null);
+					}
+					setCurrentSubtitleText(null);
+				};
+
 				if (initialSubtitleIndex !== undefined && initialSubtitleIndex !== null) {
+					console.log('[Player] Using initialSubtitleIndex path');
 					if (initialSubtitleIndex >= 0) {
 						const selectedSub = result.subtitleStreams?.find(s => s.index === initialSubtitleIndex);
 						if (selectedSub) {
+							console.log('[Player] Using initial subtitle index:', initialSubtitleIndex);
 							setSelectedSubtitleIndex(initialSubtitleIndex);
 							setSubtitleUrl(playback.getSubtitleUrl(selectedSub));
+							await loadSubtitleData(selectedSub);
 						}
 					} else {
 						// -1 means subtitles off
+						console.log('[Player] initialSubtitleIndex is -1, subtitles off');
 						setSelectedSubtitleIndex(-1);
 						setSubtitleUrl(null);
+						setSubtitleTrackEvents(null);
 					}
 				} else if (settings.subtitleMode === 'always') {
+					console.log('[Player] Using subtitleMode=always path');
 					const defaultSub = result.subtitleStreams?.find(s => s.isDefault);
 					if (defaultSub) {
+						console.log('[Player] Using default subtitle (always mode):', defaultSub.index);
 						setSelectedSubtitleIndex(defaultSub.index);
 						setSubtitleUrl(playback.getSubtitleUrl(defaultSub));
+						await loadSubtitleData(defaultSub);
+					} else if (result.subtitleStreams?.length > 0) {
+						// No default marked, use first available
+						const firstSub = result.subtitleStreams[0];
+						console.log('[Player] No default subtitle, using first:', firstSub.index);
+						setSelectedSubtitleIndex(firstSub.index);
+						setSubtitleUrl(playback.getSubtitleUrl(firstSub));
+						await loadSubtitleData(firstSub);
+					} else {
+						console.log('[Player] subtitleMode=always but no subtitles available');
 					}
 				} else if (settings.subtitleMode === 'forced') {
+					console.log('[Player] Using subtitleMode=forced path');
 					const forcedSub = result.subtitleStreams?.find(s => s.isForced);
 					if (forcedSub) {
+						console.log('[Player] Using forced subtitle:', forcedSub.index);
 						setSelectedSubtitleIndex(forcedSub.index);
 						setSubtitleUrl(playback.getSubtitleUrl(forcedSub));
+						await loadSubtitleData(forcedSub);
+					} else {
+						console.log('[Player] No forced subtitle found');
 					}
+				} else {
+					console.log('[Player] No subtitle auto-selected - subtitleMode is:', settings.subtitleMode);
 				}
+				console.log('[Player] === SUBTITLE SELECTION END ===');
 
 				// Build title and subtitle
 				let displayTitle = item.Name;
@@ -455,36 +520,6 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		setSourceAndPlay();
 	}, [mediaUrl, isLoading, mimeType, playMethod]);
 
-	useEffect(() => {
-		const video = videoRef.current;
-		if (!video) return;
-
-		const enableSubtitle = () => {
-			if (video.textTracks && video.textTracks.length > 0) {
-				for (let i = 0; i < video.textTracks.length; i++) {
-					video.textTracks[i].mode = subtitleUrl ? 'showing' : 'hidden';
-				}
-			}
-		};
-
-		if (subtitleUrl) {
-			const track = video.querySelector('track');
-			if (track) {
-				track.addEventListener('load', enableSubtitle);
-			}
-			enableSubtitle();
-		} else {
-			enableSubtitle();
-		}
-
-		return () => {
-			const track = video.querySelector('track');
-			if (track) {
-				track.removeEventListener('load', enableSubtitle);
-			}
-		};
-	}, [subtitleUrl]);
-
 	// Controls auto-hide
 	const showControls = useCallback(() => {
 		setControlsVisible(true);
@@ -587,6 +622,18 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				healthMonitorRef.current.recordProgress();
 			}
 
+			// Update custom subtitle text (webOS doesn't support native <track> elements)
+			if (subtitleTrackEvents && subtitleTrackEvents.length > 0) {
+				let foundSubtitle = null;
+				for (const event of subtitleTrackEvents) {
+					if (ticks >= event.StartPositionTicks && ticks <= event.EndPositionTicks) {
+						foundSubtitle = event.Text;
+						break;
+					}
+				}
+				setCurrentSubtitleText(foundSubtitle);
+			}
+
 			// Check for intro skip
 			if (mediaSegments && settings.skipIntro) {
 				const {introStart, introEnd, creditsStart} = mediaSegments;
@@ -624,7 +671,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				}
 			}
 		}
-	}, [mediaSegments, settings.skipIntro, settings.skipCredits, settings.autoPlay, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, handlePlayNextEpisode]);
+	}, [mediaSegments, settings.skipIntro, settings.skipCredits, settings.autoPlay, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, handlePlayNextEpisode, subtitleTrackEvents]);
 
 	const handleWaiting = useCallback(() => {
 		setIsBuffering(true);
@@ -806,16 +853,45 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		}
 	}, [playMethod, closeModal]);
 
-	const handleSelectSubtitle = useCallback((e) => {
+	const handleSelectSubtitle = useCallback(async (e) => {
 		const index = parseInt(e.currentTarget.dataset.index, 10);
+		console.log('[Player] handleSelectSubtitle called with index:', index);
 		if (isNaN(index)) return;
 		if (index === -1) {
+			console.log('[Player] Turning subtitles OFF');
 			setSelectedSubtitleIndex(-1);
 			setSubtitleUrl(null);
+			setSubtitleTrackEvents(null);
+			setCurrentSubtitleText(null);
 		} else {
+			console.log('[Player] Selecting subtitle index:', index);
 			setSelectedSubtitleIndex(index);
 			const stream = subtitleStreams.find(s => s.index === index);
+			console.log('[Player] Found stream:', stream ? 'yes' : 'no', 'codec:', stream?.codec, 'isTextBased:', stream?.isTextBased);
 			setSubtitleUrl(stream ? playback.getSubtitleUrl(stream) : null);
+			// Fetch subtitle data as JSON for custom rendering (webOS doesn't support native <track>)
+			if (stream && stream.isTextBased) {
+				try {
+					console.log('[Player] Fetching subtitle data for text-based sub...');
+					const data = await playback.fetchSubtitleData(stream);
+					console.log('[Player] Got subtitle data:', data ? 'yes' : 'no', 'TrackEvents:', data?.TrackEvents?.length);
+					if (data && data.TrackEvents) {
+						setSubtitleTrackEvents(data.TrackEvents);
+						console.log('[Player] Manual select: Loaded', data.TrackEvents.length, 'subtitle events');
+					} else {
+						console.log('[Player] No TrackEvents in response');
+						setSubtitleTrackEvents(null);
+					}
+				} catch (err) {
+					console.error('[Player] Error fetching subtitle data:', err);
+					setSubtitleTrackEvents(null);
+				}
+			} else {
+				// PGS/image-based subtitles - cannot render client-side, need to burn in via transcode
+				console.log('[Player] Image-based subtitle (codec:', stream?.codec, ') - requires burn-in via transcode');
+				setSubtitleTrackEvents(null);
+			}
+			setCurrentSubtitleText(null);
 		}
 		closeModal();
 	}, [subtitleStreams, closeModal]);
@@ -1029,9 +1105,22 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				onPlaying={handlePlaying}
 				onEnded={handleEnded}
 				onError={handleError}
-			>
-				{subtitleUrl && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="Subtitles" />}
-			</video>
+			/>
+
+			{/* Custom Subtitle Overlay - webOS doesn't support native <track> elements */}
+			{currentSubtitleText && (
+				<div className={css.subtitleOverlay}>
+					<div
+						className={css.subtitleText}
+						dangerouslySetInnerHTML={{
+							__html: currentSubtitleText
+								.replace(/\\N/gi, '<br/>')
+								.replace(/\r?\n/gi, '<br/>')
+								.replace(/{\\.*?}/gi, '') // Remove ASS/SSA style tags
+						}}
+					/>
+				</div>
+			)}
 
 			{/* Video Dimmer */}
 			<div className={`${css.videoDimmer} ${controlsVisible ? css.visible : ''}`} />
