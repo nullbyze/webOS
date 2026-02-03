@@ -247,8 +247,15 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 	// Build supported audio codecs list
 	const audioCodec = (audioStream?.Codec || '').toLowerCase();
 	const supportedAudioCodecs = ['aac', 'mp3', 'mp2', 'mp1', 'flac', 'pcm_s16le', 'pcm_s24le', 'lpcm', 'wav'];
-	if (capabilities.ac3) supportedAudioCodecs.push('ac3', 'dolby');
-	if (capabilities.eac3) supportedAudioCodecs.push('eac3', 'ec3');
+	
+	// AC3/EAC3 support is container-specific on webOS 5
+	// Only reliably works in broadcast containers (TS, M2TS)
+	const isBroadcastContainer = ['ts', 'mpegts', 'mts', 'm2ts'].includes(container);
+	const ac3Supported = capabilities.ac3 && (capabilities.webosVersion !== 5 || isBroadcastContainer);
+	const eac3Supported = capabilities.eac3 && (capabilities.webosVersion !== 5 || isBroadcastContainer);
+	
+	if (ac3Supported) supportedAudioCodecs.push('ac3', 'dolby');
+	if (eac3Supported) supportedAudioCodecs.push('eac3', 'ec3');
 	if (capabilities.dts) supportedAudioCodecs.push('dts', 'dca', 'dts-hd', 'dtshd');
 	if (capabilities.truehd) supportedAudioCodecs.push('truehd', 'mlp');
 	if (capabilities.webosVersion >= 24) supportedAudioCodecs.push('opus');

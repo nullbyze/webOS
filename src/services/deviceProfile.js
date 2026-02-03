@@ -451,11 +451,12 @@ export const getJellyfinDeviceProfile = async () => {
 	if (caps.webosVersion === 5) {
 		console.log('[deviceProfile] Using HTTP progressive MP4 transcoding for webOS 5');
 		// Use progressive MP4 download for webOS 5
+		// Emulator lacks Dolby licensing - force AAC for all transcodes
 		transcodingProfiles = [
 			{
 				Container: 'mp4',
 				Type: 'Video',
-				AudioCodec: 'aac,ac3',
+				AudioCodec: 'aac',
 				VideoCodec: 'h264',
 				Context: 'Streaming',
 				Protocol: 'http',
@@ -464,7 +465,7 @@ export const getJellyfinDeviceProfile = async () => {
 			{
 				Container: 'ts',
 				Type: 'Video',
-				AudioCodec: 'aac,ac3',
+				AudioCodec: 'aac',
 				VideoCodec: 'h264',
 				Context: 'Streaming',
 				Protocol: 'http',
