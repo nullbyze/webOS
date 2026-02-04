@@ -90,11 +90,18 @@ const BLUR_OPTIONS = [
 	{value: 40, label: 'Heavy'}
 ];
 
-const UI_BLUR_OPTIONS = [
-	{value: 0, label: 'Off'},
-	{value: 10, label: 'Light'},
-	{value: 20, label: 'Medium'},
-	{value: 30, label: 'Strong'}
+const SUBTITLE_SIZE_OPTIONS = [
+	{value: 'small', label: 'Small', fontSize: 28},
+	{value: 'medium', label: 'Medium', fontSize: 36},
+	{value: 'large', label: 'Large', fontSize: 44},
+	{value: 'xlarge', label: 'Extra Large', fontSize: 52}
+];
+
+const SUBTITLE_POSITION_OPTIONS = [
+	{value: 'bottom', label: 'Bottom', offset: 10},
+	{value: 'lower', label: 'Lower', offset: 15},
+	{value: 'middle', label: 'Middle', offset: 25},
+	{value: 'higher', label: 'Higher', offset: 35}
 ];
 
 const UI_OPACITY_OPTIONS = [
@@ -342,11 +349,17 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 		updateSetting('backdropBlurDetail', BLUR_OPTIONS[nextIndex].value);
 	}, [settings.backdropBlurDetail, updateSetting]);
 
-	const cycleUiBlur = useCallback(() => {
-		const currentIndex = UI_BLUR_OPTIONS.findIndex(o => o.value === settings.uiBlur);
-		const nextIndex = (currentIndex + 1) % UI_BLUR_OPTIONS.length;
-		updateSetting('uiBlur', UI_BLUR_OPTIONS[nextIndex].value);
-	}, [settings.uiBlur, updateSetting]);
+	const cycleSubtitleSize = useCallback(() => {
+		const currentIndex = SUBTITLE_SIZE_OPTIONS.findIndex(o => o.value === settings.subtitleSize);
+		const nextIndex = (currentIndex + 1) % SUBTITLE_SIZE_OPTIONS.length;
+		updateSetting('subtitleSize', SUBTITLE_SIZE_OPTIONS[nextIndex].value);
+	}, [settings.subtitleSize, updateSetting]);
+
+	const cycleSubtitlePosition = useCallback(() => {
+		const currentIndex = SUBTITLE_POSITION_OPTIONS.findIndex(o => o.value === settings.subtitlePosition);
+		const nextIndex = (currentIndex + 1) % SUBTITLE_POSITION_OPTIONS.length;
+		updateSetting('subtitlePosition', SUBTITLE_POSITION_OPTIONS[nextIndex].value);
+	}, [settings.subtitlePosition, updateSetting]);
 
 	const cycleUiOpacity = useCallback(() => {
 		const currentIndex = UI_OPACITY_OPTIONS.findIndex(o => o.value === settings.uiOpacity);
@@ -526,9 +539,14 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 		return option?.label || 'Medium';
 	};
 
-	const getUiBlurLabel = () => {
-		const option = UI_BLUR_OPTIONS.find(o => o.value === settings.uiBlur);
+	const getSubtitleSizeLabel = () => {
+		const option = SUBTITLE_SIZE_OPTIONS.find(o => o.value === settings.subtitleSize);
 		return option?.label || 'Medium';
+	};
+
+	const getSubtitlePositionLabel = () => {
+		const option = SUBTITLE_POSITION_OPTIONS.find(o => o.value === settings.subtitlePosition);
+		return option?.label || 'Bottom';
 	};
 
 	const getUiOpacityLabel = () => {
@@ -611,6 +629,15 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 				)}
 			</div>
 			<div className={css.settingsGroup}>
+				<h2>Subtitles</h2>
+				{renderSettingItem('Subtitle Size', 'Size of subtitle text',
+					getSubtitleSizeLabel(), cycleSubtitleSize, 'setting-subtitleSize'
+				)}
+				{renderSettingItem('Subtitle Position', 'Vertical position of subtitles',
+					getSubtitlePositionLabel(), cycleSubtitlePosition, 'setting-subtitlePosition'
+				)}
+			</div>
+			<div className={css.settingsGroup}>
 				<h2>Transcoding</h2>
 				{renderToggleItem('Prefer Transcoding', 'Request transcoded streams when available', 'preferTranscode')}
 			</div>
@@ -631,9 +658,6 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 			</div>
 			<div className={css.settingsGroup}>
 				<h2>UI Elements</h2>
-				{renderSettingItem('UI Blur', 'Blur effect on navbar and UI panels (disable for better performance)',
-					getUiBlurLabel(), cycleUiBlur, 'setting-uiBlur'
-				)}
 				{renderSettingItem('UI Opacity', 'Background opacity of navbar and UI panels',
 					getUiOpacityLabel(), cycleUiOpacity, 'setting-uiOpacity'
 				)}

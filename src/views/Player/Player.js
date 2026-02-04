@@ -1171,9 +1171,17 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 
 			{/* Custom Subtitle Overlay - webOS doesn't support native <track> elements */}
 			{currentSubtitleText && (
-				<div className={css.subtitleOverlay}>
+				<div
+					className={css.subtitleOverlay}
+					style={{
+						bottom: `${settings.subtitlePosition === 'bottom' ? 10 : settings.subtitlePosition === 'lower' ? 15 : settings.subtitlePosition === 'middle' ? 25 : 35}%`
+					}}
+				>
 					<div
 						className={css.subtitleText}
+						style={{
+							fontSize: `${settings.subtitleSize === 'small' ? 28 : settings.subtitleSize === 'medium' ? 36 : settings.subtitleSize === 'large' ? 44 : 52}px`
+						}}
 						// eslint-disable-next-line react/no-danger
 						dangerouslySetInnerHTML={{
 							__html: currentSubtitleText
