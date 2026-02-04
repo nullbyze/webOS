@@ -29,13 +29,16 @@ let cachedLibraries = null;
 let cachedFeaturedItems = null;
 let cacheTimestamp = null;
 
+let lastFocusState = null;
+
 const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
 
 const SpottableDiv = Spottable('div');
 const SpottableButton = Spottable('button');
 
 const Browse = ({
-	onSelectItem
+	onSelectItem,
+	isVisible = true
 }) => {
 	const {api, serverUrl, accessToken} = useAuth();
 	const {settings} = useSettings();
@@ -52,6 +55,37 @@ const Browse = ({
 	const pendingBackdropRef = useRef(null);
 	const preloadedImagesRef = useRef(new Set());
 	const focusItemTimeoutRef = useRef(null);
+	const lastFocusedRowRef = useRef(null);
+	const wasVisibleRef = useRef(true);
+
+	const fetchFreshFeaturedItems = useCallback(async (fallbackItems = null) => {
+		try {
+			const randomItems = await api.getRandomItems(settings.featuredContentType, settings.featuredItemCount);
+			if (randomItems?.Items?.length > 0) {
+				const filteredItems = randomItems.Items.filter(item => item.Type !== 'BoxSet');
+				const featuredWithLogos = filteredItems.map(item => ({
+					...item,
+					LogoUrl: getLogoUrl(serverUrl, item, {maxWidth: 800, quality: 90})
+				}));
+				setFeaturedItems(featuredWithLogos);
+				setCurrentFeaturedIndex(0);
+				cachedFeaturedItems = featuredWithLogos;
+				return featuredWithLogos;
+			} else if (fallbackItems) {
+				setFeaturedItems(fallbackItems);
+				cachedFeaturedItems = fallbackItems;
+				return fallbackItems;
+			}
+		} catch (e) {
+			console.warn('[Browse] Failed to fetch fresh featured items:', e);
+			if (fallbackItems) {
+				setFeaturedItems(fallbackItems);
+				cachedFeaturedItems = fallbackItems;
+				return fallbackItems;
+			}
+		}
+		return null;
+	}, [api, settings.featuredContentType, settings.featuredItemCount, serverUrl]);
 
 	const getUiColorRgb = useCallback((colorKey) => {
 		const colorMap = {
@@ -240,8 +274,32 @@ const Browse = ({
 	}, []);
 
 	useEffect(() => {
+		if (isVisible && !wasVisibleRef.current && !isLoading && filteredRows.length > 0) {
+			fetchFreshFeaturedItems();
+			
+			setTimeout(() => {
+				if (lastFocusState) {
+					const {rowIndex} = lastFocusState;
+					const targetRowIndex = Math.min(rowIndex, filteredRows.length - 1);
+					Spotlight.focus(`row-${targetRowIndex}`);
+					
+					const targetRow = document.querySelector(`[data-row-index="${targetRowIndex}"]`);
+					if (targetRow) {
+						targetRow.scrollIntoView({block: 'center'});
+					}
+					lastFocusState = null;
+				}
+			}, FOCUS_DELAY_MS);
+		}
+		wasVisibleRef.current = isVisible;
+	}, [isVisible, isLoading, filteredRows.length, fetchFreshFeaturedItems]);
+
+	useEffect(() => {
 		if (!isLoading) {
 			setTimeout(() => {
+				if (lastFocusState) {
+					return;
+				}
 				if (settings.showFeaturedBar !== false && featuredItems.length > 0) {
 					Spotlight.focus('featured-banner');
 				} else if (filteredRows.length > 0) {
@@ -316,7 +374,7 @@ const Browse = ({
 			if (cachedRowData && cachedLibraries && cachedFeaturedItems && isCacheValid(cacheTimestamp, CACHE_TTL_VOLATILE)) {
 				console.log('[Browse] Using in-memory cache');
 				setAllRowData(cachedRowData);
-				setFeaturedItems(cachedFeaturedItems);
+				await fetchFreshFeaturedItems(cachedFeaturedItems);
 				setIsLoading(false);
 				return;
 			}
@@ -328,10 +386,9 @@ const Browse = ({
 			if (hasValidPersistedCache) {
 				console.log('[Browse] Using persisted cache, will refresh in background');
 				setAllRowData(persistedCache.rowData);
-				setFeaturedItems(persistedCache.featuredItems);
+				await fetchFreshFeaturedItems(persistedCache.featuredItems);
 				cachedLibraries = persistedCache.libraries;
 				cachedRowData = persistedCache.rowData;
-				cachedFeaturedItems = persistedCache.featuredItems;
 				cacheTimestamp = persistedCache.timestamp;
 				setIsLoading(false);
 
@@ -545,7 +602,7 @@ const Browse = ({
 		};
 
 		loadData();
-	}, [api, serverUrl, accessToken, settings.featuredContentType, settings.featuredItemCount, isCacheValid, loadBrowseCache, saveBrowseCache]);
+	}, [api, serverUrl, accessToken, settings.featuredContentType, settings.featuredItemCount, isCacheValid, loadBrowseCache, saveBrowseCache, fetchFreshFeaturedItems]);
 
 	useEffect(() => {
 		if (featuredItems.length === 0) return;
@@ -617,6 +674,11 @@ const Browse = ({
 	}, [focusedItem, browseMode, currentFeaturedIndex, featuredItems, serverUrl]);
 
 	const handleSelectItem = useCallback((item) => {
+		if (lastFocusedRowRef.current !== null) {
+			lastFocusState = {
+				rowIndex: lastFocusedRowRef.current
+			};
+		}
 		onSelectItem?.(item);
 	}, [onSelectItem]);
 
@@ -659,9 +721,12 @@ const Browse = ({
 		}
 	}, [handleFeaturedPrev, handleFeaturedNext]);
 
-	const handleRowFocus = useCallback(() => {
+	const handleRowFocus = useCallback((rowIndex) => {
 		if (browseMode !== 'rows') {
 			setBrowseMode('rows');
+		}
+		if (typeof rowIndex === 'number') {
+			lastFocusedRowRef.current = rowIndex;
 		}
 	}, [browseMode]);
 

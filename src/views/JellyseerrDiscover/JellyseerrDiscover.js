@@ -55,6 +55,8 @@ const ROW_CONFIGS = [
 	{id: 'upcomingTv', title: 'Upcoming TV Shows', type: 'media', fetchFn: 'upcomingTv'}
 ];
 
+let lastFocusedRowIndex = null;
+
 // Memoized card components for performance
 const MediaCard = memo(function MediaCard({item, mediaType, onSelect, onFocus}) {
 	const posterUrl = jellyseerrApi.getImageUrl(item.poster_path || item.posterPath, 'w342');
@@ -230,7 +232,8 @@ const DiscoverRow = memo(function DiscoverRow({
 	onFocusItem,
 	onNavigateUp,
 	onNavigateDown,
-	onLoadMore
+	onLoadMore,
+	onRowFocus
 }) {
 	const scrollerRef = useRef(null);
 
@@ -247,6 +250,9 @@ const DiscoverRow = memo(function DiscoverRow({
 	}, [rowIndex, onNavigateUp, onNavigateDown]);
 
 	const handleFocus = useCallback((e) => {
+		// Track focused row for restoration
+		onRowFocus?.(rowIndex);
+
 		const card = e.target.closest(`.${css.mediaCard}, .${css.genreCard}, .${css.networkCard}, .${css.requestCard}`);
 		const scroller = scrollerRef.current;
 		if (card && scroller) {
@@ -272,7 +278,7 @@ const DiscoverRow = memo(function DiscoverRow({
 		if (row) {
 			row.scrollIntoView({behavior: 'smooth', block: 'center'});
 		}
-	}, [config.id, onLoadMore]);
+	}, [config.id, onLoadMore, rowIndex, onRowFocus]);
 
 	const renderCards = useMemo(() => {
 		switch (config.type) {
@@ -541,6 +547,28 @@ const JellyseerrDiscover = ({onSelectItem, onSelectGenre, onSelectNetwork, onSel
 		}
 	}, [visibleRows.length]);
 
+	const handleRowFocus = useCallback((rowIndex) => {
+		if (typeof rowIndex === 'number') {
+			lastFocusedRowIndex = rowIndex;
+		}
+	}, []);
+
+	useEffect(() => {
+		if (!isLoading && visibleRows.length > 0) {
+			setTimeout(() => {
+				if (lastFocusedRowIndex !== null && lastFocusedRowIndex < visibleRows.length) {
+					Spotlight.focus(`discover-row-${lastFocusedRowIndex}`);
+					const targetRow = document.querySelector(`[data-row-index="${lastFocusedRowIndex}"]`);
+					if (targetRow) {
+						targetRow.scrollIntoView({block: 'center'});
+					}
+				} else {
+					Spotlight.focus('discover-row-0');
+				}
+			}, 100);
+		}
+	}, [isLoading, visibleRows.length]);
+
 	if (!isEnabled) {
 		return (
 			<div className={css.container}>
@@ -619,6 +647,7 @@ const JellyseerrDiscover = ({onSelectItem, onSelectGenre, onSelectNetwork, onSel
 								onNavigateUp={handleNavigateUp}
 								onNavigateDown={handleNavigateDown}
 								onLoadMore={loadMoreForRow}
+								onRowFocus={handleRowFocus}
 							/>
 						))}
 					</div>

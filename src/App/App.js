@@ -484,6 +484,7 @@ const AppContent = (props) => {
 						<Browse
 							onSelectItem={handleSelectItem}
 							onSelectLibrary={handleSelectLibrary}
+							isVisible={panelIndex === PANELS.BROWSE}
 						/>
 					</Panel>
 					<Panel>

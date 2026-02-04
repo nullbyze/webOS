@@ -32,7 +32,7 @@ const MediaRow = ({
 	}, [onSelectItem]);
 
 	const handleFocus = useCallback((e) => {
-		onFocus?.();
+		onFocus?.(rowIndex);
 
 		const card = e.target.closest('.spottable');
 		const scroller = scrollerRef.current;
@@ -50,7 +50,7 @@ const MediaRow = ({
 				}
 			});
 		}
-	}, [onFocus]);
+	}, [onFocus, rowIndex]);
 
 	const handleKeyDown = useCallback((e) => {
 		if (e.keyCode === 38 && onNavigateUp) {

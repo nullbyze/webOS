@@ -20,7 +20,7 @@ const HorizontalContainer = SpotlightContainerDecorator({
 }, 'div');
 
 const getResolutionName = (width, height) => {
-	if (width >= 3800 && height >= 2100) return '4K';
+	if (width >= 3800 && height >= 2000) return '4K';
 	if (width >= 2500 && height >= 1400) return '1440P';
 	if (width >= 1900 && height >= 1000) return '1080P';
 	if (width >= 1260 && height >= 700) return '720P';
