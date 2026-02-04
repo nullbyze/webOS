@@ -1,5 +1,6 @@
 import {useState, useEffect, useCallback} from 'react';
-import {Panel, Header} from '@enact/sandstone/Panels';
+import Spotlight from '@enact/spotlight';
+import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDecorator';
 import {VirtualGridList} from '@enact/sandstone/VirtualList';
 import Image from '@enact/sandstone/Image';
 import {useAuth} from '../../context/AuthContext';
@@ -7,6 +8,8 @@ import MediaCard from '../../components/MediaCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
 import css from './Person.module.less';
+
+const GridContainer = SpotlightContainerDecorator({enterTo: 'last-focused', restrict: 'self-only'}, 'div');
 
 const Person = ({personId, onSelectItem, onBack}) => {
 	const {api, serverUrl} = useAuth();
@@ -49,6 +52,20 @@ const Person = ({personId, onSelectItem, onBack}) => {
 		onSelectItem?.(item);
 	}, [onSelectItem]);
 
+	const handleGridKeyDown = useCallback((e) => {
+		if (e.keyCode === 38) {
+			const grid = document.querySelector(`.${css.grid}`);
+			if (grid) {
+				const scrollTop = grid.scrollTop || 0;
+				if (scrollTop < 50) {
+					e.preventDefault();
+					e.stopPropagation();
+					Spotlight.focus('navbar');
+				}
+			}
+		}
+	}, []);
+
 	const renderItem = useCallback(({index, ...rest}) => {
 		const item = items[index];
 		if (!item) return null;
@@ -66,19 +83,17 @@ const Person = ({personId, onSelectItem, onBack}) => {
 
 	if (isLoading) {
 		return (
-			<Panel>
-				<Header title="Loading..." />
+			<div className={css.page}>
 				<LoadingSpinner />
-			</Panel>
+			</div>
 		);
 	}
 
 	if (!person) {
 		return (
-			<Panel>
-				<Header title="Not Found" />
+			<div className={css.page}>
 				<div className={css.empty}>Person not found</div>
-			</Panel>
+			</div>
 		);
 	}
 
@@ -87,8 +102,7 @@ const Person = ({personId, onSelectItem, onBack}) => {
 		: null;
 
 	return (
-		<Panel>
-			<Header title={person.Name} />
+		<div className={css.page}>
 			<div className={css.content}>
 				<div className={css.personInfo}>
 					{imageUrl ? (
@@ -112,17 +126,21 @@ const Person = ({personId, onSelectItem, onBack}) => {
 				{items.length > 0 && (
 					<div className={css.filmography}>
 						<h2 className={css.sectionTitle}>Filmography ({items.length})</h2>
-						<VirtualGridList
-							className={css.grid}
-							dataSize={items.length}
-							itemRenderer={renderItem}
-							itemSize={{minWidth: 200, minHeight: 340}}
-							spacing={24}
-						/>
+						<GridContainer className={css.gridContainer}>
+							<VirtualGridList
+								className={css.grid}
+								dataSize={items.length}
+								itemRenderer={renderItem}
+								itemSize={{minWidth: 200, minHeight: 360}}
+								spacing={32}
+								onKeyDown={handleGridKeyDown}
+								spotlightId="person-grid"
+							/>
+						</GridContainer>
 					</div>
 				)}
 			</div>
-		</Panel>
+		</div>
 	);
 };
 
