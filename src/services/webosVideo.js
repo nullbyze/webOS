@@ -274,7 +274,9 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 
 	const videoOk = !videoCodec || supportedVideoCodecs.includes(videoCodec);
 	const audioOk = audioOkResult;
-	const containerOk = !container || supportedContainers.includes(container);
+	// Container can be comma-separated (e.g., "mov,mp4,m4a,3gp,3g2,mj2") - check if ANY match
+	const containerParts = container.split(',').map(c => c.trim());
+	const containerOk = !container || containerParts.some(c => supportedContainers.includes(c));
 
 	// HDR compatibility check
 	let hdrOk = true;

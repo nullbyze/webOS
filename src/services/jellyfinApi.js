@@ -191,7 +191,7 @@ export const api = {
 
 	getGenres: (libraryId) => {
 		const params = libraryId ? `&ParentId=${libraryId}` : '';
-		return request(`/Genres?UserId=${currentUser}&SortBy=SortName${params}`);
+		return request(`/Genres?UserId=${currentUser}&SortBy=SortName&Recursive=true&IncludeItemTypes=Movie,Series${params}`);
 	},
 
 	getItemsByGenre: (genreId, libraryId, limit = 50) =>
@@ -288,4 +288,144 @@ export const api = {
 
 	getAdjacentEpisodes: (itemId) =>
 		request(`/Users/${currentUser}/Items/${itemId}?Fields=Overview,MediaStreams,Chapters`)
+};
+
+/**
+ * Create an API instance for a specific server
+ * Used for cross-server content aggregation
+ * @param {string} serverUrl - Server URL
+ * @param {string} token - Access token
+ * @param {string} userId - User ID
+ * @returns {Object} API object with all methods bound to the specified server
+ */
+export const createApiForServer = (serverUrl, token, userId) => {
+	// Normalize server URL
+	let url = serverUrl?.trim();
+	if (url) {
+		url = url.replace(/\/+$/, '');
+		if (!/^https?:\/\//i.test(url)) {
+			url = 'http://' + url;
+		}
+	}
+
+	const getServerAuthHeader = () => {
+		let header = `MediaBrowser Client="${APP_NAME}", Device="LG Smart TV", DeviceId="${deviceId}", Version="${APP_VERSION}"`;
+		if (token) {
+			header += `, Token="${token}"`;
+		}
+		return header;
+	};
+
+	const serverRequest = async (endpoint, options = {}) => {
+		const requestUrl = `${url}${endpoint}`;
+
+		const response = await fetch(requestUrl, {
+			method: options.method || 'GET',
+			headers: {
+				'X-Emby-Authorization': getServerAuthHeader(),
+				'Content-Type': 'application/json',
+				...options.headers
+			},
+			body: options.body ? JSON.stringify(options.body) : undefined
+		});
+
+		if (!response.ok) {
+			const error = new Error(`API Error: ${response.status}`);
+			error.status = response.status;
+			throw error;
+		}
+
+		if (response.status === 204) {
+			return null;
+		}
+
+		return response.json();
+	};
+
+	return {
+		getLibraries: () => serverRequest(`/Users/${userId}/Views`),
+
+		getItem: (itemId) =>
+			serverRequest(`/Users/${userId}/Items/${itemId}?Fields=Overview,Genres,People,Studios,MediaSources,MediaStreams,ExternalUrls,ProviderIds,RemoteTrailers,Taglines`),
+
+		getItems: (params = {}) => {
+			// Manually build query string to match main api.getItems behavior
+			const queryParts = [];
+			for (const [key, value] of Object.entries(params)) {
+				if (value !== undefined && value !== null && value !== '') {
+					queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+				}
+			}
+			const query = queryParts.join('&');
+			return serverRequest(`/Users/${userId}/Items?${query}`);
+		},
+
+		getGenres: (libraryId) => {
+			const params = libraryId ? `&ParentId=${libraryId}` : '';
+			return serverRequest(`/Genres?UserId=${userId}&SortBy=SortName&Recursive=true&IncludeItemTypes=Movie,Series${params}`);
+		},
+
+		getResumeItems: () =>
+			serverRequest(`/Users/${userId}/Items/Resume?Limit=12&Recursive=true&Fields=PrimaryImageAspectRatio,Overview&MediaTypes=Video&EnableTotalRecordCount=false&ExcludeItemTypes=Book`),
+
+		getNextUp: (limit = 12, seriesId = null) => {
+			let endpoint = `/Shows/NextUp?UserId=${userId}&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview`;
+			if (seriesId) endpoint += `&SeriesId=${seriesId}`;
+			return serverRequest(endpoint);
+		},
+
+		getLatestMedia: (libraryId = null, limit = 16) => {
+			let endpoint = `/Users/${userId}/Items/Latest?Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview`;
+			if (libraryId) endpoint += `&ParentId=${libraryId}`;
+			return serverRequest(endpoint);
+		},
+
+		getRandomItems: (contentType = 'both', limit = 10) => {
+			let includeTypes;
+			switch (contentType) {
+				case 'movies':
+					includeTypes = 'Movie';
+					break;
+				case 'tv':
+					includeTypes = 'Series';
+					break;
+				default:
+					includeTypes = 'Movie,Series';
+			}
+			return serverRequest(`/Users/${userId}/Items?IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview,Genres&HasBackdrop=true&ExcludeItemTypes=BoxSet`);
+		},
+
+		getRandomItem: (includeTypes = 'Movie,Series') =>
+			serverRequest(`/Items?UserId=${userId}&IncludeItemTypes=${includeTypes}&Recursive=true&SortBy=Random&Limit=1&Fields=PrimaryImageAspectRatio,Overview&ExcludeItemTypes=BoxSet`),
+
+		search: (query, limit = 24) =>
+			serverRequest(`/Users/${userId}/Items?SearchTerm=${encodeURIComponent(query)}&IncludeItemTypes=Movie,Series,Episode,Person&Recursive=true&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview`),
+
+		getSimilar: (itemId, limit = 12) =>
+			serverRequest(`/Items/${itemId}/Similar?UserId=${userId}&Limit=${limit}&Fields=PrimaryImageAspectRatio,Overview`),
+
+		getSeasons: (seriesId) =>
+			serverRequest(`/Shows/${seriesId}/Seasons?UserId=${userId}&Fields=Overview,PrimaryImageAspectRatio`),
+
+		getEpisodes: (seriesId, seasonId) =>
+			serverRequest(`/Shows/${seriesId}/Episodes?UserId=${userId}&SeasonId=${seasonId}&Fields=Overview,PrimaryImageAspectRatio,MediaSources,MediaStreams`),
+
+		getPlaybackInfo: (itemId) =>
+			serverRequest(`/Items/${itemId}/PlaybackInfo?UserId=${userId}`),
+
+		setFavorite: (itemId, isFavorite) => serverRequest(`/Users/${userId}/FavoriteItems/${itemId}`, {
+			method: isFavorite ? 'POST' : 'DELETE'
+		}),
+
+		setWatched: (itemId, watched) => serverRequest(`/Users/${userId}/PlayedItems/${itemId}`, {
+			method: watched ? 'POST' : 'DELETE'
+		}),
+
+		// Return server info for playback routing
+		getServerInfo: () => ({
+			serverUrl: url,
+			accessToken: token,
+			userId: userId
+		})
+	};
 };

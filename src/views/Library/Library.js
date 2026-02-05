@@ -6,6 +6,7 @@ import {VirtualGridList} from '@enact/sandstone/VirtualList';
 import Popup from '@enact/sandstone/Popup';
 import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
+import {createApiForServer} from '../../services/jellyfinApi';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {getImageUrl, getPrimaryImageId} from '../../utils/helpers';
 
@@ -37,6 +38,19 @@ const LETTERS = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'
 
 const Library = ({library, onSelectItem, onBack}) => {
 const {api, serverUrl} = useAuth();
+
+// Support cross-server libraries
+const effectiveApi = useMemo(() => {
+	if (library?._serverUrl && library?._serverAccessToken) {
+		return createApiForServer(library._serverUrl, library._serverAccessToken, library._serverUserId);
+	}
+	return api;
+}, [library, api]);
+
+const effectiveServerUrl = useMemo(() => {
+	return library?._serverUrl || serverUrl;
+}, [library, serverUrl]);
+
 const [allItems, setAllItems] = useState([]);
 const [isLoading, setIsLoading] = useState(true);
 const [totalCount, setTotalCount] = useState(0);
@@ -143,7 +157,7 @@ params.Filters = 'IsResumable';
 }
 }
 
-const result = await api.getItems(params);
+const result = await effectiveApi.getItems(params);
 let newItems = result.Items || [];
 
 if (excludeTypes && newItems.length > 0) {
@@ -160,7 +174,7 @@ setTotalCount(result.TotalRecordCount || 0);
 setIsLoading(false);
 loadingMoreRef.current = false;
 }
-}, [api, library, sortBy, filter, getItemTypeForLibrary, getExcludeItemTypes]);
+}, [effectiveApi, library, sortBy, filter, getItemTypeForLibrary, getExcludeItemTypes]);
 
 useEffect(() => {
 if (library) {
@@ -301,7 +315,7 @@ return (
 }
 
 const imageId = getPrimaryImageId(item);
-const imageUrl = imageId ? getImageUrl(serverUrl, imageId, 'Primary', {maxHeight: 300, quality: 80}) : null;
+const imageUrl = imageId ? getImageUrl(effectiveServerUrl, imageId, 'Primary', {maxHeight: 300, quality: 80}) : null;
 
 return (
 <SpottableDiv
@@ -332,7 +346,7 @@ loading="lazy"
 </div>
 </SpottableDiv>
 );
-}, [serverUrl, handleItemClick, items.length, totalCount, isLoading, loadItems]);
+}, [effectiveServerUrl, handleItemClick, items.length, totalCount, isLoading, loadItems]);
 
 const currentSort = SORT_OPTIONS.find(o => o.key === sortBy);
 const currentFilter = FILTER_OPTIONS.find(o => o.key === filter);

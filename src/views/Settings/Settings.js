@@ -70,7 +70,7 @@ const BITRATE_OPTIONS = [
 	{value: 5000000, label: '5 Mbps'}
 ];
 
-const FEATURED_CONTENT_TYPE_OPTIONS = [
+const CONTENT_TYPE_OPTIONS = [
 	{value: 'both', label: 'Movies & TV Shows'},
 	{value: 'movies', label: 'Movies Only'},
 	{value: 'tv', label: 'TV Shows Only'}
@@ -156,6 +156,7 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 		switchUser,
 		removeUser,
 		hasMultipleUsers,
+		hasMultipleServers,
 		startAddServerFlow
 	} = useAuth();
 	const {settings, updateSetting} = useSettings();
@@ -333,10 +334,16 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 	}, [settings.maxBitrate, updateSetting]);
 
 	const cycleFeaturedContentType = useCallback(() => {
-		const currentIndex = FEATURED_CONTENT_TYPE_OPTIONS.findIndex(o => o.value === settings.featuredContentType);
-		const nextIndex = (currentIndex + 1) % FEATURED_CONTENT_TYPE_OPTIONS.length;
-		updateSetting('featuredContentType', FEATURED_CONTENT_TYPE_OPTIONS[nextIndex].value);
+		const currentIndex = CONTENT_TYPE_OPTIONS.findIndex(o => o.value === settings.featuredContentType);
+		const nextIndex = (currentIndex + 1) % CONTENT_TYPE_OPTIONS.length;
+		updateSetting('featuredContentType', CONTENT_TYPE_OPTIONS[nextIndex].value);
 	}, [settings.featuredContentType, updateSetting]);
+
+	const cycleShuffleContentType = useCallback(() => {
+		const currentIndex = CONTENT_TYPE_OPTIONS.findIndex(o => o.value === settings.shuffleContentType);
+		const nextIndex = (currentIndex + 1) % CONTENT_TYPE_OPTIONS.length;
+		updateSetting('shuffleContentType', CONTENT_TYPE_OPTIONS[nextIndex].value);
+	}, [settings.shuffleContentType, updateSetting]);
 
 	const cycleFeaturedItemCount = useCallback(() => {
 		const currentIndex = FEATURED_ITEM_COUNT_OPTIONS.findIndex(o => o.value === settings.featuredItemCount);
@@ -538,7 +545,12 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 	};
 
 	const getFeaturedContentTypeLabel = () => {
-		const option = FEATURED_CONTENT_TYPE_OPTIONS.find(o => o.value === settings.featuredContentType);
+		const option = CONTENT_TYPE_OPTIONS.find(o => o.value === settings.featuredContentType);
+		return option?.label || 'Movies & TV Shows';
+	};
+
+	const getShuffleContentTypeLabel = () => {
+		const option = CONTENT_TYPE_OPTIONS.find(o => o.value === settings.shuffleContentType);
 		return option?.label || 'Movies & TV Shows';
 	};
 
@@ -613,9 +625,18 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 					'setting-clockDisplay'
 				)}
 			</div>
+			{hasMultipleServers && (
+				<div className={css.settingsGroup}>
+					<h2>Multi-Server</h2>
+					{renderToggleItem('Unified Library Mode', 'Combine content from all servers into a single view', 'unifiedLibraryMode')}
+				</div>
+			)}
 			<div className={css.settingsGroup}>
 				<h2>Navigation Bar</h2>
 				{renderToggleItem('Show Shuffle Button', 'Show shuffle button in navigation bar', 'showShuffleButton')}
+				{settings.showShuffleButton && renderSettingItem('Shuffle Content Type', 'Type of content to shuffle',
+					getShuffleContentTypeLabel(), cycleShuffleContentType, 'setting-shuffleContentType'
+				)}
 				{renderToggleItem('Show Genres Button', 'Show genres button in navigation bar', 'showGenresButton')}
 				{renderToggleItem('Show Favorites Button', 'Show favorites button in navigation bar', 'showFavoritesButton')}
 				{renderToggleItem('Show Libraries in Toolbar', 'Show expandable library shortcuts in navigation bar', 'showLibrariesInToolbar')}

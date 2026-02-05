@@ -2,7 +2,19 @@ import {useState, useEffect} from 'react';
 import LS2Request from '@enact/webos/LS2Request';
 
 const SERVICE_URI = 'luna://org.moonfin.webos.service';
+
+// Limit cache size to prevent memory bloat
+const MAX_CACHE_SIZE = 100;
 const imageCache = new Map();
+
+// Simple LRU-like cache management
+const addToCache = (url, data) => {
+	if (imageCache.size >= MAX_CACHE_SIZE) {
+		const keysToDelete = Array.from(imageCache.keys()).slice(0, 20);
+		keysToDelete.forEach(key => imageCache.delete(key));
+	}
+	imageCache.set(url, data);
+};
 
 const proxyImage = (url) => {
 	return new Promise((resolve) => {
@@ -23,7 +35,7 @@ const proxyImage = (url) => {
 			onSuccess: (response) => {
 				if (response.success && response.data) {
 					const dataUrl = `data:${response.contentType || 'image/jpeg'};base64,${response.data}`;
-					imageCache.set(url, dataUrl);
+					addToCache(url, dataUrl);
 					resolve(dataUrl);
 				} else {
 					resolve(url);
@@ -67,6 +79,12 @@ export const useProxiedImage = (originalUrl) => {
 	}, [originalUrl]);
 
 	return {imageUrl, loading};
+};
+
+// Export cache management functions
+export const clearProxiedImageCache = () => {
+	imageCache.clear();
+	console.log('[useProxiedImage] Cache cleared');
 };
 
 export default useProxiedImage;

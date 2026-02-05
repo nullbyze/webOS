@@ -2,8 +2,20 @@ import LS2Request from '@enact/webos/LS2Request';
 
 const SERVICE_URI = 'luna://org.moonfin.webos.service';
 
+// Limit cache size to prevent memory bloat (base64 images can be large)
+const MAX_CACHE_SIZE = 50;
 const imageCache = new Map();
 const pendingRequests = new Map();
+
+// Simple LRU-like cache management
+const addToCache = (url, data) => {
+	// If at max size, remove oldest entries (first 10)
+	if (imageCache.size >= MAX_CACHE_SIZE) {
+		const keysToDelete = Array.from(imageCache.keys()).slice(0, 10);
+		keysToDelete.forEach(key => imageCache.delete(key));
+	}
+	imageCache.set(url, data);
+};
 
 export const proxyImage = (url) => {
 	if (!url) return Promise.resolve(null);
@@ -24,7 +36,7 @@ export const proxyImage = (url) => {
 			onSuccess: (response) => {
 				if (response.success && response.data) {
 					const dataUrl = `data:${response.contentType || 'image/jpeg'};base64,${response.data}`;
-					imageCache.set(url, dataUrl);
+					addToCache(url, dataUrl);
 					pendingRequests.delete(url);
 					resolve(dataUrl);
 				} else {
@@ -45,9 +57,17 @@ export const proxyImage = (url) => {
 
 export const clearImageCache = () => {
 	imageCache.clear();
+	pendingRequests.clear();
+	console.log('[imageProxy] Cache cleared');
 };
+
+export const getCacheStats = () => ({
+	size: imageCache.size,
+	pending: pendingRequests.size
+});
 
 export default {
 	proxyImage,
-	clearImageCache
+	clearImageCache,
+	getCacheStats
 };

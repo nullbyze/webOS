@@ -7,6 +7,7 @@ import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
 import {getFromStorage, saveToStorage} from '../../services/storage';
+import * as connectionPool from '../../services/connectionPool';
 
 import css from './Browse.module.less';
 
@@ -40,8 +41,9 @@ const Browse = ({
 	onSelectItem,
 	isVisible = true
 }) => {
-	const {api, serverUrl, accessToken} = useAuth();
+	const {api, serverUrl, accessToken, hasMultipleServers} = useAuth();
 	const {settings} = useSettings();
+	const unifiedMode = settings.unifiedLibraryMode && hasMultipleServers;
 	const [isLoading, setIsLoading] = useState(true);
 	const [featuredItems, setFeaturedItems] = useState([]);
 	const [currentFeaturedIndex, setCurrentFeaturedIndex] = useState(0);
@@ -58,14 +60,27 @@ const Browse = ({
 	const lastFocusedRowRef = useRef(null);
 	const wasVisibleRef = useRef(true);
 
+	// Helper to get the correct server URL for an item (supports cross-server items)
+	const getItemServerUrl = useCallback((item) => {
+		return item?._serverUrl || serverUrl;
+	}, [serverUrl]);
+
 	const fetchFreshFeaturedItems = useCallback(async (fallbackItems = null) => {
 		try {
-			const randomItems = await api.getRandomItems(settings.featuredContentType, settings.featuredItemCount);
-			if (randomItems?.Items?.length > 0) {
-				const filteredItems = randomItems.Items.filter(item => item.Type !== 'BoxSet');
+			let items = [];
+			if (unifiedMode) {
+				// Fetch from all servers
+				items = await connectionPool.getRandomItemsFromAllServers(settings.featuredContentType, settings.featuredItemCount);
+			} else {
+				const randomItems = await api.getRandomItems(settings.featuredContentType, settings.featuredItemCount);
+				items = randomItems?.Items || [];
+			}
+
+			if (items.length > 0) {
+				const filteredItems = items.filter(item => item.Type !== 'BoxSet');
 				const featuredWithLogos = filteredItems.map(item => ({
 					...item,
-					LogoUrl: getLogoUrl(serverUrl, item, {maxWidth: 800, quality: 90})
+					LogoUrl: getLogoUrl(getItemServerUrl(item), item, {maxWidth: 800, quality: 90})
 				}));
 				setFeaturedItems(featuredWithLogos);
 				setCurrentFeaturedIndex(0);
@@ -85,7 +100,7 @@ const Browse = ({
 			}
 		}
 		return null;
-	}, [api, settings.featuredContentType, settings.featuredItemCount, serverUrl]);
+	}, [api, settings.featuredContentType, settings.featuredItemCount, unifiedMode, getItemServerUrl]);
 
 	const getUiColorRgb = useCallback((colorKey) => {
 		const colorMap = {
@@ -276,13 +291,13 @@ const Browse = ({
 	useEffect(() => {
 		if (isVisible && !wasVisibleRef.current && !isLoading && filteredRows.length > 0) {
 			fetchFreshFeaturedItems();
-			
+
 			setTimeout(() => {
 				if (lastFocusState) {
 					const {rowIndex} = lastFocusState;
 					const targetRowIndex = Math.min(rowIndex, filteredRows.length - 1);
 					Spotlight.focus(`row-${targetRowIndex}`);
-					
+
 					const targetRow = document.querySelector(`[data-row-index="${targetRowIndex}"]`);
 					if (targetRow) {
 						targetRow.scrollIntoView({block: 'center'});
@@ -371,6 +386,13 @@ const Browse = ({
 
 	useEffect(() => {
 		const loadData = async () => {
+			// In unified mode, skip cache and always fetch fresh from all servers
+			if (unifiedMode) {
+				setIsLoading(true);
+				await fetchAllData(); // eslint-disable-line no-use-before-define
+				return;
+			}
+
 			if (cachedRowData && cachedLibraries && cachedFeaturedItems && isCacheValid(cacheTimestamp, CACHE_TTL_VOLATILE)) {
 				console.log('[Browse] Using in-memory cache');
 				setAllRowData(cachedRowData);
@@ -408,10 +430,22 @@ const Browse = ({
 		// Fetch volatile data (resume, next up) in background without showing loading
 		const refreshVolatileData = async () => {
 			try {
-				const [resumeItems, nextUp] = await Promise.all([
-					api.getResumeItems(),
-					api.getNextUp()
-				]);
+				let resumeItems, nextUp;
+
+				if (unifiedMode) {
+					// Fetch from all servers
+					[resumeItems, nextUp] = await Promise.all([
+						connectionPool.getResumeItemsFromAllServers(),
+						connectionPool.getNextUpFromAllServers()
+					]);
+					resumeItems = {Items: resumeItems};
+					nextUp = {Items: nextUp};
+				} else {
+					[resumeItems, nextUp] = await Promise.all([
+						api.getResumeItems(),
+						api.getNextUp()
+					]);
+				}
 
 				// Update just the volatile rows while preserving the rest
 				setAllRowData(prev => {
@@ -439,7 +473,9 @@ const Browse = ({
 					const updated = [...newRows, ...filtered];
 					cachedRowData = updated;
 					cacheTimestamp = Date.now();
-					saveBrowseCache(updated, cachedLibraries, cachedFeaturedItems);
+					if (!unifiedMode) {
+						saveBrowseCache(updated, cachedLibraries, cachedFeaturedItems);
+					}
 					return updated;
 				});
 			} catch (e) {
@@ -450,15 +486,36 @@ const Browse = ({
 		// Full data fetch
 		const fetchAllData = async () => {
 			try {
-				const [libResult, resumeItems, nextUp, userConfig, randomItems] = await Promise.all([
-					api.getLibraries(),
-					api.getResumeItems(),
-					api.getNextUp(),
-					api.getUserConfiguration().catch(() => null),
-					api.getRandomItems(settings.featuredContentType, settings.featuredItemCount)
-				]);
+				let libs, resumeItems, nextUp, userConfig, randomItems;
 
-				const libs = libResult.Items || [];
+				if (unifiedMode) {
+					const [libsArray, resumeArray, nextUpArray, randomArray] = await Promise.all([
+						connectionPool.getLibrariesFromAllServers(),
+						connectionPool.getResumeItemsFromAllServers(),
+						connectionPool.getNextUpFromAllServers(),
+						connectionPool.getRandomItemsFromAllServers(settings.featuredContentType, settings.featuredItemCount)
+					]);
+					libs = libsArray;
+					resumeItems = {Items: resumeArray};
+					nextUp = {Items: nextUpArray};
+					userConfig = null; // Not supported in unified mode
+					randomItems = {Items: randomArray};
+				} else {
+					// Fetch from single server
+					const results = await Promise.all([
+						api.getLibraries(),
+						api.getResumeItems(),
+						api.getNextUp(),
+						api.getUserConfiguration().catch(() => null),
+						api.getRandomItems(settings.featuredContentType, settings.featuredItemCount)
+					]);
+					libs = results[0].Items || [];
+					resumeItems = results[1];
+					nextUp = results[2];
+					userConfig = results[3];
+					randomItems = results[4];
+				}
+
 				cachedLibraries = libs;
 
 				const latestItemsExcludes = userConfig?.Configuration?.LatestItemsExcludes || [];
@@ -502,7 +559,7 @@ const Browse = ({
 					const shuffled = [...filteredItems].sort(() => Math.random() - 0.5);
 					const featuredWithLogos = shuffled.map(item => ({
 						...item,
-						LogoUrl: getLogoUrl(serverUrl, item, {maxWidth: 800, quality: 90})
+						LogoUrl: getLogoUrl(getItemServerUrl(item), item, {maxWidth: 800, quality: 90})
 					}));
 					setFeaturedItems(featuredWithLogos);
 					cachedFeaturedItems = featuredWithLogos;
@@ -521,16 +578,27 @@ const Browse = ({
 					return true;
 				});
 
-				const [latestResults, collectionsResult] = await Promise.all([
-					Promise.all(
-						eligibleLibraries.map(lib =>
-							api.getLatest(lib.Id, 16)
-								.then(latest => ({lib, latest}))
-								.catch(() => null)
-						)
-					),
-					api.getCollections(20).catch(() => null)
-				]);
+				let latestResults, collectionsResult;
+
+				if (unifiedMode) {
+					// In unified mode, fetch latest per library from all servers
+					latestResults = await connectionPool.getLatestPerLibraryFromAllServers(
+						latestItemsExcludes,
+						EXCLUDED_COLLECTION_TYPES
+					);
+					collectionsResult = null;
+				} else {
+					[latestResults, collectionsResult] = await Promise.all([
+						Promise.all(
+							eligibleLibraries.map(lib =>
+								api.getLatest(lib.Id, 16)
+									.then(latest => ({lib, latest}))
+									.catch(() => null)
+							)
+						),
+						api.getCollections(20).catch(() => null)
+					]);
+				}
 
 				const completeRowData = [];
 
@@ -554,9 +622,13 @@ const Browse = ({
 
 				for (const result of latestResults) {
 					if (result && result.latest?.length > 0) {
+						// In unified mode, append server name to library title
+						const libraryTitle = unifiedMode && result.lib._serverName
+							? `${result.lib.Name} (${result.lib._serverName})`
+							: result.lib.Name;
 						completeRowData.push({
-							id: `latest-${result.lib.Id}`,
-							title: `Latest in ${result.lib.Name}`,
+							id: `latest-${result.lib.Id}${result.lib._serverName ? '-' + result.lib._serverName : ''}`,
+							title: `Latest in ${libraryTitle}`,
 							items: result.latest,
 							library: result.lib,
 							type: 'portrait',
@@ -592,7 +664,9 @@ const Browse = ({
 				cachedRowData = completeRowData;
 				cacheTimestamp = Date.now();
 
-				saveBrowseCache(completeRowData, libs, cachedFeaturedItems);
+				if (!unifiedMode) {
+					saveBrowseCache(completeRowData, libs, cachedFeaturedItems);
+				}
 
 			} catch (err) {
 				console.error('Failed to load browse data:', err);
@@ -602,7 +676,7 @@ const Browse = ({
 		};
 
 		loadData();
-	}, [api, serverUrl, accessToken, settings.featuredContentType, settings.featuredItemCount, isCacheValid, loadBrowseCache, saveBrowseCache, fetchFreshFeaturedItems]);
+	}, [api, serverUrl, accessToken, settings.featuredContentType, settings.featuredItemCount, isCacheValid, loadBrowseCache, saveBrowseCache, fetchFreshFeaturedItems, unifiedMode, getItemServerUrl]);
 
 	useEffect(() => {
 		if (featuredItems.length === 0) return;
@@ -642,17 +716,22 @@ const Browse = ({
 
 	useEffect(() => {
 		let backdropId = null;
+		let itemForBackdrop = null;
 
 		if (browseMode === 'featured') {
-			backdropId = getBackdropId(featuredItems[currentFeaturedIndex]);
+			itemForBackdrop = featuredItems[currentFeaturedIndex];
+			backdropId = getBackdropId(itemForBackdrop);
 		} else if (focusedItem) {
+			itemForBackdrop = focusedItem;
 			backdropId = getBackdropId(focusedItem);
 		} else {
-			backdropId = getBackdropId(featuredItems[currentFeaturedIndex]);
+			itemForBackdrop = featuredItems[currentFeaturedIndex];
+			backdropId = getBackdropId(itemForBackdrop);
 		}
 
 		if (backdropId) {
-			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
+			const itemUrl = getItemServerUrl(itemForBackdrop);
+			const url = getImageUrl(itemUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
 			if (pendingBackdropRef.current === url) return;
 
 			if (backdropTimeoutRef.current) {
@@ -671,7 +750,7 @@ const Browse = ({
 				clearTimeout(backdropTimeoutRef.current);
 			}
 		};
-	}, [focusedItem, browseMode, currentFeaturedIndex, featuredItems, serverUrl]);
+	}, [focusedItem, browseMode, currentFeaturedIndex, featuredItems, getItemServerUrl]);
 
 	const handleSelectItem = useCallback((item) => {
 		if (lastFocusedRowRef.current !== null) {
@@ -819,7 +898,7 @@ const Browse = ({
 						>
 							<div className={css.featuredBackdrop}>
 								<img
-									src={getImageUrl(serverUrl, getBackdropId(currentFeatured), 'Backdrop', {maxWidth: 1920, quality: 100})}
+									src={getImageUrl(getItemServerUrl(currentFeatured), getBackdropId(currentFeatured), 'Backdrop', {maxWidth: 1920, quality: 100})}
 									alt=""
 								/>
 							</div>
@@ -949,6 +1028,7 @@ const Browse = ({
 							rowIndex={index}
 							onNavigateUp={handleNavigateUp}
 							onNavigateDown={handleNavigateDown}
+							showServerBadge={unifiedMode}
 						/>
 					))}
 					{filteredRows.length === 0 && (

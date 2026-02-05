@@ -1,4 +1,4 @@
-import {memo, useCallback, useMemo, useRef} from 'react';
+import {memo, useCallback, useMemo, useRef, useEffect} from 'react';
 import Spottable from '@enact/spotlight/Spottable';
 import {getImageUrl} from '../../utils/helpers';
 
@@ -6,29 +6,43 @@ import css from './MediaCard.module.less';
 
 const SpottableDiv = Spottable('div');
 
-const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusItem}) => {
+const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusItem, showServerBadge = false}) => {
 	const isLandscape = cardType === 'landscape';
 	const focusTimeoutRef = useRef(null);
+
+	// Cleanup timeout on unmount
+	useEffect(() => {
+		return () => {
+			if (focusTimeoutRef.current) {
+				clearTimeout(focusTimeoutRef.current);
+			}
+		};
+	}, []);
+
+	// Support cross-server items that have their own server URL
+	const itemServerUrl = useMemo(() => {
+		return item._serverUrl || serverUrl;
+	}, [item._serverUrl, serverUrl]);
 
 	const imageUrl = useMemo(() => {
 		if (isLandscape && item.Type === 'Episode') {
 			if (item.ImageTags?.Primary) {
-				return getImageUrl(serverUrl, item.Id, 'Primary', {maxWidth: 500, quality: 90});
+				return getImageUrl(itemServerUrl, item.Id, 'Primary', {maxWidth: 500, quality: 90});
 			}
 			if (item.ParentThumbItemId) {
-				return getImageUrl(serverUrl, item.ParentThumbItemId, 'Thumb', {maxWidth: 500, quality: 90});
+				return getImageUrl(itemServerUrl, item.ParentThumbItemId, 'Thumb', {maxWidth: 500, quality: 90});
 			}
 			if (item.ParentBackdropItemId) {
-				return getImageUrl(serverUrl, item.ParentBackdropItemId, 'Backdrop', {maxWidth: 500, quality: 90});
+				return getImageUrl(itemServerUrl, item.ParentBackdropItemId, 'Backdrop', {maxWidth: 500, quality: 90});
 			}
 		}
 
 		if (item.ImageTags?.Primary) {
-			return getImageUrl(serverUrl, item.Id, 'Primary', {maxHeight: 400, quality: 90});
+			return getImageUrl(itemServerUrl, item.Id, 'Primary', {maxHeight: 400, quality: 90});
 		}
 
 		return null;
-	}, [isLandscape, item.Type, item.ImageTags?.Primary, item.Id, item.ParentThumbItemId, item.ParentBackdropItemId, serverUrl]);
+	}, [isLandscape, item.Type, item.ImageTags?.Primary, item.Id, item.ParentThumbItemId, item.ParentBackdropItemId, itemServerUrl]);
 
 	const handleClick = useCallback(() => {
 		onSelect?.(item);
@@ -74,6 +88,10 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 					<div className={css.progressBar}>
 						<div className={css.progress} style={{width: `${progress}%`}} />
 					</div>
+				)}
+
+				{showServerBadge && item._serverName && (
+					<div className={css.serverBadge}>{item._serverName}</div>
 				)}
 			</div>
 

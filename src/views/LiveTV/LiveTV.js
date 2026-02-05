@@ -193,7 +193,7 @@ const LiveTV = ({onPlayChannel, onBack, onRecordings}) => {
 					Spotlight.focus('navbar');
 					return;
 				}
-				
+
 				const guideContent = guideContentRef.current;
 				if (guideContent && guideContent.scrollTop < 50) {
 					const programCell = focused?.closest('[data-program-id]');

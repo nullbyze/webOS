@@ -3,6 +3,8 @@ import Spottable from '@enact/spotlight/Spottable';
 import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDecorator';
 import Spotlight from '@enact/spotlight';
 import {useAuth} from '../../context/AuthContext';
+import {useSettings} from '../../context/SettingsContext';
+import * as connectionPool from '../../services/connectionPool';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import ProxiedImage from '../../components/ProxiedImage';
 import {getImageUrl, getPrimaryImageId} from '../../utils/helpers';
@@ -10,13 +12,14 @@ import {getImageUrl, getPrimaryImageId} from '../../utils/helpers';
 import css from './Favorites.module.less';
 
 const SpottableDiv = Spottable('div');
-const SpottableButton = Spottable('button');
 const RowContainer = SpotlightContainerDecorator({enterTo: 'last-focused', restrict: 'self-first'}, 'div');
 
 const ITEMS_PER_PAGE = 12;
 
 const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
-	const {api, serverUrl} = useAuth();
+	const {api, serverUrl, hasMultipleServers} = useAuth();
+	const {settings} = useSettings();
+	const unifiedMode = settings.unifiedLibraryMode && hasMultipleServers;
 	const [items, setItems] = useState({
 		movies: [],
 		shows: [],
@@ -63,16 +66,21 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 	const loadItems = useCallback(async () => {
 		setIsLoading(true);
 		try {
-			const result = await api.getItems({
-				Recursive: true,
-				Filters: 'IsFavorite',
-				IncludeItemTypes: 'Movie,Series,Episode,Person',
-				SortBy: 'SortName',
-				SortOrder: 'Ascending',
-				Fields: 'PrimaryImageAspectRatio,ProductionYear,ParentIndexNumber,IndexNumber,SeriesName'
-			});
+			let allItems;
+			if (unifiedMode) {
+				allItems = await connectionPool.getFavoritesFromAllServers();
+			} else {
+				const result = await api.getItems({
+					Recursive: true,
+					Filters: 'IsFavorite',
+					IncludeItemTypes: 'Movie,Series,Episode,Person',
+					SortBy: 'SortName',
+					SortOrder: 'Ascending',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ParentIndexNumber,IndexNumber,SeriesName'
+				});
+				allItems = result.Items || [];
+			}
 
-			const allItems = result.Items || [];
 			const categorized = {
 				movies: allItems.filter(item => item.Type === 'Movie'),
 				shows: allItems.filter(item => item.Type === 'Series'),
@@ -86,7 +94,7 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 		} finally {
 			setIsLoading(false);
 		}
-	}, [api]);
+	}, [api, unifiedMode]);
 
 	useEffect(() => {
 		loadItems();
@@ -140,7 +148,9 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 		if (e.keyCode === 38) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (rowIndex > 0) {
+			if (rowIndex === 0) {
+				Spotlight.focus('nav-favorites');
+			} else if (rowIndex > 0) {
 				Spotlight.focus(`favorites-row-${rowIndex - 1}`);
 			}
 		} else if (e.keyCode === 40) {
@@ -159,7 +169,9 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 		const isPerson = item.Type === 'Person';
 		const isEpisode = item.Type === 'Episode';
 		const imageId = getPrimaryImageId(item);
-		const imageUrl = imageId ? getImageUrl(serverUrl, imageId, 'Primary') : null;
+		// Support cross-server items with their own server URL
+		const itemServerUrl = item._serverUrl || serverUrl;
+		const imageUrl = imageId ? getImageUrl(itemServerUrl, imageId, 'Primary') : null;
 
 		let subtitle = '';
 		if (isEpisode) {
@@ -180,6 +192,9 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 				spotlightId={`${rowId}-item-${index}`}
 			>
 				<div className={`${css.cardImageWrapper} ${isPerson ? css.personImageWrapper : ''} ${isEpisode ? css.episodeImageWrapper : ''}`}>
+					{unifiedMode && item._serverName && (
+						<div className={css.serverBadge}>{item._serverName}</div>
+					)}
 					{imageUrl ? (
 						<ProxiedImage
 							className={`${css.cardImage} ${isPerson ? css.personImage : ''}`}
@@ -196,7 +211,7 @@ const Favorites = ({onSelectItem, onSelectPerson, onBack}) => {
 				</div>
 			</SpottableDiv>
 		);
-	}, [serverUrl, handleCardClick]);
+	}, [serverUrl, handleCardClick, unifiedMode]);
 
 	return (
 		<div className={css.favoritesContainer}>

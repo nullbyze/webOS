@@ -1,9 +1,10 @@
-import {useState, useEffect, useCallback, useRef} from 'react';
+import {useState, useEffect, useCallback, useRef, useMemo} from 'react';
 import Spotlight from '@enact/spotlight';
 import Spottable from '@enact/spotlight/Spottable';
 import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDecorator';
 import {Scroller} from '@enact/sandstone/Scroller';
 import {useAuth} from '../../context/AuthContext';
+import {createApiForServer} from '../../services/jellyfinApi';
 import {useSettings} from '../../context/SettingsContext';
 import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -29,9 +30,38 @@ const getResolutionName = (width, height) => {
 	return height + 'P';
 };
 
-const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
+const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 	const {api, serverUrl} = useAuth();
 	const {settings} = useSettings();
+
+	// Support cross-server items - memoize to prevent infinite re-renders
+	const effectiveApi = useMemo(() => {
+		if (initialItem?._serverUrl && initialItem?._serverAccessToken) {
+			return createApiForServer(initialItem._serverUrl, initialItem._serverAccessToken, initialItem._serverUserId);
+		}
+		return api;
+	}, [initialItem?._serverUrl, initialItem?._serverAccessToken, initialItem?._serverUserId, api]);
+
+	const effectiveServerUrl = useMemo(() => {
+		return initialItem?._serverUrl || serverUrl;
+	}, [initialItem?._serverUrl, serverUrl]);
+
+	// Helper to tag items with cross-server credentials for playback
+	const tagWithServerInfo = useCallback((items) => {
+		if (!initialItem?._serverUrl || !initialItem?._serverAccessToken) {
+			return items;
+		}
+		const tagSingleItem = (itemToTag) => ({
+			...itemToTag,
+			_serverUrl: initialItem._serverUrl,
+			_serverAccessToken: initialItem._serverAccessToken,
+			_serverUserId: initialItem._serverUserId,
+			_serverName: initialItem._serverName,
+			_serverId: initialItem._serverId
+		});
+		return Array.isArray(items) ? items.map(tagSingleItem) : tagSingleItem(items);
+	}, [initialItem?._serverUrl, initialItem?._serverAccessToken, initialItem?._serverUserId, initialItem?._serverName, initialItem?._serverId]);
+
 	const [item, setItem] = useState(null);
 	const [seasons, setSeasons] = useState([]);
 	const [episodes, setEpisodes] = useState([]);
@@ -60,24 +90,24 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 			setSelectedSeason(null);
 
 			try {
-				const data = await api.getItem(itemId);
-				setItem(data);
+				const data = await effectiveApi.getItem(itemId);
+				setItem(tagWithServerInfo(data));
 
 				if (data.People?.length > 0) {
 					setCast(data.People.slice(0, 20));
 				}
 
 				if (data.Type === 'Series') {
-					const seasonsData = await api.getSeasons(itemId);
-					setSeasons(seasonsData.Items || []);
+					const seasonsData = await effectiveApi.getSeasons(itemId);
+					setSeasons(tagWithServerInfo(seasonsData.Items || []));
 					if (seasonsData.Items?.length > 0) {
-						setSelectedSeason(seasonsData.Items[0]);
+						setSelectedSeason(tagWithServerInfo(seasonsData.Items[0]));
 					}
 
 					try {
-						const nextUpData = await api.getNextUp(1, itemId);
+						const nextUpData = await effectiveApi.getNextUp(1, itemId);
 						if (nextUpData.Items?.length > 0) {
-							setNextUp(nextUpData.Items);
+							setNextUp(tagWithServerInfo(nextUpData.Items));
 						}
 					} catch (e) {
 						// Next up not available
@@ -86,8 +116,8 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 				if (data.Type === 'Season') {
 					try {
-						const episodesData = await api.getEpisodes(data.SeriesId, data.Id);
-						setEpisodes(episodesData.Items || []);
+						const episodesData = await effectiveApi.getEpisodes(data.SeriesId, data.Id);
+						setEpisodes(tagWithServerInfo(episodesData.Items || []));
 					} catch (e) {
 						// Episodes not available
 					}
@@ -95,13 +125,13 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 				if (data.Type === 'BoxSet') {
 					try {
-						const collectionData = await api.getItems({
+						const collectionData = await effectiveApi.getItems({
 							ParentId: data.Id,
 							SortBy: 'ProductionYear,SortName',
 							SortOrder: 'Ascending',
 							Fields: 'PrimaryImageAspectRatio,ProductionYear'
 						});
-						setCollectionItems(collectionData.Items || []);
+						setCollectionItems(tagWithServerInfo(collectionData.Items || []));
 					} catch (e) {
 						// Collection items not available
 					}
@@ -109,8 +139,8 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 				if (data.Type !== 'Person' && data.Type !== 'BoxSet') {
 					try {
-						const similarData = await api.getSimilar(itemId);
-						setSimilar(similarData.Items || []);
+						const similarData = await effectiveApi.getSimilar(itemId);
+						setSimilar(tagWithServerInfo(similarData.Items || []));
 					} catch (e) {
 						// Similar items not available
 					}
@@ -118,8 +148,8 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 				if (data.Type === 'Person') {
 					try {
-						const filmography = await api.getItemsByPerson(itemId, 50);
-						setSimilar(filmography.Items || []);
+						const filmography = await effectiveApi.getItemsByPerson(itemId, 50);
+						setSimilar(tagWithServerInfo(filmography.Items || []));
 					} catch (e) {
 						// Filmography not available
 					}
@@ -131,7 +161,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 			}
 		};
 		loadItem();
-	}, [api, itemId]);
+	}, [effectiveApi, itemId, tagWithServerInfo]);
 
 	// Auto-focus the primary button (Resume or Play) when content loads
 	useEffect(() => {
@@ -148,14 +178,14 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 		if (!selectedSeason || !item || item.Type !== 'Series') return;
 		const loadEpisodes = async () => {
 			try {
-				const episodesData = await api.getEpisodes(item.Id, selectedSeason.Id);
-				setEpisodes(episodesData.Items || []);
+				const episodesData = await effectiveApi.getEpisodes(item.Id, selectedSeason.Id);
+				setEpisodes(tagWithServerInfo(episodesData.Items || []));
 			} catch (err) {
 				// Episodes not available
 			}
 		};
 		loadEpisodes();
-	}, [api, item, selectedSeason]);
+	}, [effectiveApi, item, selectedSeason, tagWithServerInfo]);
 
 	const handlePlay = useCallback(() => {
 		if (!item) return;
@@ -242,22 +272,22 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 	const handleToggleFavorite = useCallback(async () => {
 		if (!item) return;
 		const newState = !item.UserData?.IsFavorite;
-		await api.setFavorite(item.Id, newState);
+		await effectiveApi.setFavorite(item.Id, newState);
 		setItem(prev => ({
 			...prev,
 			UserData: {...prev.UserData, IsFavorite: newState}
 		}));
-	}, [api, item]);
+	}, [effectiveApi, item]);
 
 	const handleToggleWatched = useCallback(async () => {
 		if (!item) return;
 		const newState = !item.UserData?.Played;
-		await api.setWatched(item.Id, newState);
+		await effectiveApi.setWatched(item.Id, newState);
 		setItem(prev => ({
 			...prev,
 			UserData: {...prev.UserData, Played: newState, PlayedPercentage: newState ? 100 : 0}
 		}));
-	}, [api, item]);
+	}, [effectiveApi, item]);
 
 	const handleGoToSeries = useCallback(() => {
 		if (item?.SeriesId) {
@@ -370,10 +400,10 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 
 	const backdropId = getBackdropId(item);
 	const backdropUrl = backdropId
-		? getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1920, quality: 90})
+		? getImageUrl(effectiveServerUrl, backdropId, 'Backdrop', {maxWidth: 1920, quality: 90})
 		: null;
 
-	const logoUrl = getLogoUrl(serverUrl, item, {maxWidth: 600, quality: 90});
+	const logoUrl = getLogoUrl(effectiveServerUrl, item, {maxWidth: 600, quality: 90});
 
 	const year = item.ProductionYear || '';
 	const runtime = item.RunTimeTicks ? formatDuration(item.RunTimeTicks) : '';
@@ -464,7 +494,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 							{isPerson && item.ImageTags?.Primary && (
 								<div className={css.personContent}>
 									<img
-										src={getImageUrl(serverUrl, item.Id, 'Primary', {maxHeight: 450, quality: 90})}
+										src={getImageUrl(effectiveServerUrl, item.Id, 'Primary', {maxHeight: 450, quality: 90})}
 										className={css.personPhoto}
 										alt=""
 									/>
@@ -649,8 +679,9 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 							<MediaRow
 								title="Next Up"
 								items={nextUp}
-								serverUrl={serverUrl}
+								serverUrl={effectiveServerUrl}
 								onSelectItem={onSelectItem}
+								cardType="landscape"
 							/>
 						)}
 
@@ -669,7 +700,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 													<div className={css.seasonPosterWrapper}>
 														{season.ImageTags?.Primary ? (
 															<img
-																src={getImageUrl(serverUrl, season.Id, 'Primary', {maxHeight: 540, quality: 90, tag: season.ImageTags.Primary})}
+																	src={getImageUrl(effectiveServerUrl, season.Id, 'Primary', {maxHeight: 400, quality: 90, tag: season.ImageTags.Primary})}
 																className={css.seasonPoster}
 																alt=""
 															/>
@@ -688,8 +719,9 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 									<MediaRow
 										title={selectedSeason?.Name || 'Episodes'}
 										items={episodes}
-										serverUrl={serverUrl}
+										serverUrl={effectiveServerUrl}
 										onSelectItem={onSelectItem}
+										cardType="landscape"
 									/>
 								)}
 							</div>
@@ -699,8 +731,9 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 							<MediaRow
 								title="Episodes"
 								items={episodes}
-								serverUrl={serverUrl}
+								serverUrl={effectiveServerUrl}
 								onSelectItem={onSelectItem}
+								cardType="landscape"
 							/>
 						)}
 
@@ -708,7 +741,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 							<MediaRow
 								title="Items in Collection"
 								items={collectionItems}
-								serverUrl={serverUrl}
+								serverUrl={effectiveServerUrl}
 								onSelectItem={onSelectItem}
 							/>
 						)}
@@ -728,7 +761,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 													<div className={css.castImageWrapper}>
 														{person.PrimaryImageTag ? (
 															<img
-																src={getImageUrl(serverUrl, person.Id, 'Primary', {maxHeight: 360, quality: 90, tag: person.PrimaryImageTag})}
+																src={getImageUrl(effectiveServerUrl, person.Id, 'Primary', {maxHeight: 360, quality: 90, tag: person.PrimaryImageTag})}
 																className={css.castImage}
 																alt=""
 															/>
@@ -751,7 +784,7 @@ const Details = ({itemId, onPlay, onSelectItem, onSelectPerson, onBack}) => {
 							<MediaRow
 								title={isPerson ? 'Filmography' : 'More Like This'}
 								items={similar}
-								serverUrl={serverUrl}
+								serverUrl={effectiveServerUrl}
 								onSelectItem={onSelectItem}
 							/>
 						)}

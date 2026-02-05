@@ -2,6 +2,15 @@ import {createContext, useContext, useState, useEffect, useCallback, useMemo} fr
 import * as jellyfinApi from '../services/jellyfinApi';
 import {initStorage, getFromStorage, saveToStorage, removeFromStorage} from '../services/storage';
 import * as multiServerManager from '../services/multiServerManager';
+import {clearImageCache} from '../services/imageProxy';
+import {clearProxiedImageCache} from '../hooks/useProxiedImage';
+
+// Clear all memory caches - call on logout or server switch
+const clearAllCaches = () => {
+	clearImageCache();
+	clearProxiedImageCache();
+	console.log('[AuthContext] All caches cleared');
+};
 
 const AuthContext = createContext(null);
 
@@ -312,6 +321,9 @@ export const AuthProvider = ({children}) => {
 			}
 		}
 
+		// Clear all caches when fully logged out
+		clearAllCaches();
+
 		await removeFromStorage('auth');
 		setUser(null);
 		setServerUrl(null);
@@ -327,6 +339,9 @@ export const AuthProvider = ({children}) => {
 	 * Full logout - remove all servers and users
 	 */
 	const logoutAll = useCallback(async () => {
+		// Clear all caches first
+		clearAllCaches();
+
 		// Remove all servers
 		const allServers = await multiServerManager.getAllServersArray();
 		for (const server of allServers) {
@@ -348,6 +363,7 @@ export const AuthProvider = ({children}) => {
 	const serverCount = useMemo(() => uniqueServers.length, [uniqueServers]);
 	const totalUserCount = useMemo(() => servers.length, [servers]);
 	const hasMultipleUsers = useMemo(() => servers.length > 1, [servers]);
+	const hasMultipleServers = useMemo(() => uniqueServers.length > 1, [uniqueServers]);
 
 	const contextValue = useMemo(() => ({
 		// Auth state
@@ -365,6 +381,7 @@ export const AuthProvider = ({children}) => {
 		serverCount,
 		totalUserCount,
 		hasMultipleUsers,
+		hasMultipleServers,
 
 		// Add server flow
 		isAddingServer,
@@ -397,6 +414,7 @@ export const AuthProvider = ({children}) => {
 		serverCount,
 		totalUserCount,
 		hasMultipleUsers,
+		hasMultipleServers,
 		isAddingServer,
 		pendingServer,
 		startAddServerFlow,

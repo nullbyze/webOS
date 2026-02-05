@@ -19,7 +19,8 @@ const MediaRow = ({
 	rowIndex,
 	rowId,
 	onNavigateUp,
-	onNavigateDown
+	onNavigateDown,
+	showServerBadge = false
 }) => {
 	const scrollerRef = useRef(null);
 	const scrollTimeoutRef = useRef(null);
@@ -84,6 +85,7 @@ const MediaRow = ({
 							cardType={cardType}
 							onSelect={handleSelect}
 							onFocusItem={onFocusItem}
+							showServerBadge={showServerBadge}
 						/>
 					))}
 				</div>

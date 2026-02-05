@@ -298,7 +298,9 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 					startPositionTicks: startPosition,
 					maxBitrate: selectedQuality || settings.maxBitrate,
 					enableDirectPlay: !settings.preferTranscode,
-					enableDirectStream: !settings.preferTranscode
+					enableDirectStream: !settings.preferTranscode,
+					// Cross-server support: pass item for server credential lookup
+					item: item
 				});
 
 				setMediaUrl(result.url);
@@ -452,13 +454,13 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 
 		return () => {
 			console.log('[Player] Cleanup running - unmounting or re-rendering');
-			
+
 			// Report stop to server with current position
 			// This ensures the playback position is saved even if user exits unexpectedly
 			if (positionRef.current > 0) {
 				playback.reportStop(positionRef.current);
 			}
-			
+
 			playback.stopProgressReporting();
 			playback.stopHealthMonitoring();
 
@@ -824,7 +826,9 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 					maxBitrate: selectedQuality || settings.maxBitrate,
 					enableDirectPlay: false,
 					enableDirectStream: false,
-					enableTranscoding: true
+					enableTranscoding: true,
+					// Cross-server support: pass item for server credential lookup
+					item: item
 				});
 
 				if (result.url) {
@@ -844,7 +848,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		}
 
 		setError(errorMessage);
-	}, [hasTriedTranscode, playMethod, item.Id, selectedQuality, settings.maxBitrate]);
+	}, [hasTriedTranscode, playMethod, item, selectedQuality, settings.maxBitrate]);
 
 	// Handle back button
 	const handleBack = useCallback(async () => {
@@ -1161,7 +1165,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 	// Focus appropriate element when focusRow changes
 	useEffect(() => {
 		if (!controlsVisible) return;
-		
+
 		// Small delay to ensure elements are rendered
 		const timer = setTimeout(() => {
 			if (focusRow === 'progress') {
@@ -1170,7 +1174,7 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 				Spotlight.focus('bottom-row-default');
 			}
 		}, 50);
-		
+
 		return () => clearTimeout(timer);
 	}, [focusRow, controlsVisible]);
 

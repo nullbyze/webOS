@@ -3,7 +3,9 @@ import ThemeDecorator from '@enact/sandstone/ThemeDecorator';
 import {Panels, Panel} from '@enact/sandstone/Panels';
 
 import {AuthProvider, useAuth} from '../context/AuthContext';
+import {useSettings} from '../context/SettingsContext';
 import * as playback from '../services/playback';
+import * as connectionPool from '../services/connectionPool';
 import {
 	isWebOS,
 	setupVisibilityHandler,
@@ -71,7 +73,9 @@ const PANELS = {
 };
 
 const AppContent = (props) => {
-	const {isAuthenticated, isLoading, logout, serverUrl, serverName, api, user} = useAuth();
+	const {isAuthenticated, isLoading, logout, serverUrl, serverName, api, user, hasMultipleServers} = useAuth();
+	const {settings} = useSettings();
+	const unifiedMode = settings.unifiedLibraryMode && hasMultipleServers;
 	const [panelIndex, setPanelIndex] = useState(PANELS.LOGIN);
 	const [selectedItem, setSelectedItem] = useState(null);
 	const [selectedLibrary, setSelectedLibrary] = useState(null);
@@ -91,8 +95,17 @@ const AppContent = (props) => {
 		const fetchLibraries = async () => {
 			if (isAuthenticated && api && user) {
 				try {
-					const result = await api.getLibraries();
-					const libs = result.Items || [];
+					let libs;
+					if (unifiedMode) {
+						libs = await connectionPool.getLibrariesFromAllServers();
+						libs = libs.map(lib => ({
+							...lib,
+							Name: `${lib.Name} (${lib._serverName})`
+						}));
+					} else {
+						const result = await api.getLibraries();
+						libs = result.Items || [];
+					}
 					const filtered = libs.filter(lib => !EXCLUDED_COLLECTION_TYPES.includes(lib.CollectionType?.toLowerCase()));
 					setLibraries(filtered);
 				} catch (err) {
@@ -103,7 +116,7 @@ const AppContent = (props) => {
 			}
 		};
 		fetchLibraries();
-	}, [isAuthenticated, api, user]);
+	}, [isAuthenticated, api, user, unifiedMode]);
 
 	const {updateInfo, formattedNotes, dismiss: dismissUpdate} = useVersionCheck(isAuthenticated ? 3000 : null);
 
@@ -270,16 +283,34 @@ const AppContent = (props) => {
 
 	const handleShuffle = useCallback(async () => {
 		try {
-			const items = await api.getRandomItem('Movie,Series');
-			if (items.Items?.length > 0) {
-				const item = items.Items[0];
+			// Convert setting value to API format
+			const contentType = settings.shuffleContentType || 'both';
+			const includeItemTypes = contentType === 'movies' ? 'Movie' 
+				: contentType === 'tv' ? 'Series' 
+				: 'Movie,Series';
+			
+			let item;
+			if (unifiedMode) {
+				// Get random items from all servers
+				const items = await connectionPool.getRandomItemsFromAllServers(contentType, 1);
+				if (items.length > 0) {
+					item = items[0];
+				}
+			} else {
+				const result = await api.getRandomItem(includeItemTypes);
+				if (result.Items?.length > 0) {
+					item = result.Items[0];
+				}
+			}
+			
+			if (item) {
 				setSelectedItem(item);
 				navigateTo(PANELS.DETAILS);
 			}
 		} catch (err) {
 			console.error('Shuffle failed:', err);
 		}
-	}, [api, navigateTo]);
+	}, [api, navigateTo, settings.shuffleContentType, unifiedMode]);
 
 	const handleSelectItem = useCallback((item) => {
 		setSelectedItem(item);
@@ -491,6 +522,7 @@ const AppContent = (props) => {
 						{panelIndex === PANELS.DETAILS && (
 							<Details
 								itemId={selectedItem?.Id}
+								initialItem={selectedItem}
 								onPlay={handlePlay}
 								onSelectItem={handleSelectItem}
 								onSelectPerson={handleSelectPerson}

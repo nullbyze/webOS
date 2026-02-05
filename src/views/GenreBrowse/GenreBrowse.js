@@ -6,6 +6,7 @@ import Popup from '@enact/sandstone/Popup';
 import Button from '@enact/sandstone/Button';
 import {useAuth} from '../../context/AuthContext';
 import {useSettings} from '../../context/SettingsContext';
+import * as connectionPool from '../../services/connectionPool';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import {getImageUrl, getBackdropId, getPrimaryImageId} from '../../utils/helpers';
 
@@ -134,8 +135,31 @@ const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
 				}
 			}
 
-			const result = await api.getItems(params);
-			const newItems = result.Items || [];
+			let result;
+			let newItems;
+
+			// Check if this is a unified genre (from all servers) or a single-server genre
+			if (genre._unifiedGenre) {
+				// Query all servers for this genre
+				result = await connectionPool.getGenreItemsFromAllServers(params);
+				newItems = result.Items || [];
+			} else if (genre._serverUrl) {
+				// Single cross-server genre
+				const effectiveApi = connectionPool.getApiForItem(genre);
+				result = await effectiveApi.getItems(params);
+				newItems = (result.Items || []).map(item => ({
+					...item,
+					_serverUrl: genre._serverUrl,
+					_serverAccessToken: genre._serverAccessToken,
+					_serverUserId: genre._serverUserId,
+					_serverName: genre._serverName,
+					_serverId: genre._serverId
+				}));
+			} else {
+				// Normal single-server genre
+				result = await api.getItems(params);
+				newItems = result.Items || [];
+			}
 
 			setServerTotalCount(result.TotalRecordCount || 0);
 
@@ -159,7 +183,8 @@ const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
 			if (isReset && newItems.length > 0 && !backdropSetRef.current) {
 				const firstItemWithBackdrop = newItems.find(item => getBackdropId(item));
 				if (firstItemWithBackdrop) {
-					const url = getImageUrl(serverUrl, getBackdropId(firstItemWithBackdrop), 'Backdrop', {maxWidth: 1920, quality: 100});
+					const itemServerUrl = firstItemWithBackdrop._serverUrl || serverUrl;
+					const url = getImageUrl(itemServerUrl, getBackdropId(firstItemWithBackdrop), 'Backdrop', {maxWidth: 1920, quality: 100});
 					setBackdropUrl(url);
 					backdropSetRef.current = true;
 				}
@@ -197,7 +222,8 @@ const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
 
 		const backdropId = getBackdropId(item);
 		if (backdropId) {
-			const url = getImageUrl(serverUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
+			const itemServerUrl = item._serverUrl || serverUrl;
+			const url = getImageUrl(itemServerUrl, backdropId, 'Backdrop', {maxWidth: 1280, quality: 80});
 
 			if (backdropTimeoutRef.current) {
 				clearTimeout(backdropTimeoutRef.current);
@@ -302,7 +328,8 @@ const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
 		}
 
 		const imageId = getPrimaryImageId(item);
-		const imageUrl = imageId ? getImageUrl(serverUrl, imageId, 'Primary', {maxHeight: 300, quality: 80}) : null;
+		const itemServerUrl = item._serverUrl || serverUrl;
+		const imageUrl = imageId ? getImageUrl(itemServerUrl, imageId, 'Primary', {maxHeight: 300, quality: 80}) : null;
 
 		return (
 			<SpottableDiv

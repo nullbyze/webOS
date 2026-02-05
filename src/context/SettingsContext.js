@@ -24,6 +24,7 @@ const defaultSettings = {
 	theme: 'dark',
 	homeRows: DEFAULT_HOME_ROWS,
 	showShuffleButton: true,
+	shuffleContentType: 'both',
 	showGenresButton: true,
 	showFavoritesButton: true,
 	showLibrariesInToolbar: true,
@@ -35,7 +36,8 @@ const defaultSettings = {
 	serverLogging: false,
 	featuredContentType: 'both',
 	featuredItemCount: 10,
-	showFeaturedBar: true
+	showFeaturedBar: true,
+	unifiedLibraryMode: false
 };
 
 export {DEFAULT_HOME_ROWS};

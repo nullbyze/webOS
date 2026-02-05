@@ -13,7 +13,7 @@ const NavContainer = SpotlightContainerDecorator({
 	enterTo: 'last-focused',
 	defaultElement: '.spottable-default',
 	preserveId: true,
-	navigationDisabled: (dir, spotlightId) => 
+	navigationDisabled: (dir, spotlightId) =>
 		dir === 'right' && spotlightId === 'navbar-settings'
 }, 'nav');
 
@@ -148,11 +148,11 @@ const NavBar = ({
 	const handleLibrariesBlur = useCallback((e) => {
 		const container = e.currentTarget;
 		const relatedTarget = e.relatedTarget;
-		
+
 		if (relatedTarget && container.contains(relatedTarget)) {
 			return;
 		}
-		
+
 		librariesTimeoutRef.current = setTimeout(() => {
 			setLibrariesExpanded(false);
 		}, 100);
