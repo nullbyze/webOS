@@ -1,5 +1,6 @@
+import {version as APP_VERSION} from '../../package.json';
+
 const APP_NAME = 'Moonfin for webOS';
-const APP_VERSION = '2.0.0';
 
 let deviceId = null;
 let currentServer = null;

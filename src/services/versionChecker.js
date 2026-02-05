@@ -5,14 +5,12 @@
  */
 
 import {getFromStorage, saveToStorage} from './storage';
+import {version as APP_VERSION} from '../../package.json';
 
 const GITHUB_API_URL = 'https://api.github.com/repos/Moonfin-Client/WebOSreleases/latest';
 const CHECK_COOLDOWN_HOURS = 24;
 const STORAGE_KEY_LAST_CHECK = 'version_last_check';
 const STORAGE_KEY_DISMISSED_VERSION = 'version_dismissed';
-
-// Get version from package.json at build time
-const APP_VERSION = '2.0.0';
 
 /**
  * Get current application version

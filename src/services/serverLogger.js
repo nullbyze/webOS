@@ -14,8 +14,9 @@ const LOG_CATEGORIES = {
 	NAVIGATION: 'Navigation'
 };
 
+import {version as APP_VERSION} from '../../package.json';
+
 const MAX_LOG_BUFFER = 50;
-const APP_VERSION = '2.0.0';
 
 let isEnabled = false;
 let logBuffer = [];
