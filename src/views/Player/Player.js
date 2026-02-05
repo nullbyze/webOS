@@ -927,17 +927,20 @@ const Player = ({item, initialAudioIndex, initialSubtitleIndex, onEnded, onBack,
 		setSelectedAudioIndex(index);
 		closeModal();
 
-		if (playMethod === playback.PlayMethod.Transcode) {
-			try {
-				const result = await playback.changeAudioStream(index);
-				if (result) {
-					setMediaUrl(result.url);
-				}
-			} catch (err) {
-				console.error('[Player] Failed to change audio:', err);
+		// For both Transcode and DirectPlay, re-fetch playback info when switching audio.
+		// This ensures unsupported codecs (e.g. DTS on webOS 5+) trigger a transcode
+		// instead of silently failing while the UI shows the wrong track.
+		try {
+			const result = await playback.changeAudioStream(index);
+			if (result) {
+				setMediaUrl(result.url);
+				setPlayMethod(result.playMethod);
+				setMimeType(result.mimeType || 'video/mp4');
 			}
+		} catch (err) {
+			console.error('[Player] Failed to change audio:', err);
 		}
-	}, [playMethod, closeModal]);
+	}, [closeModal]);
 
 	const handleSelectSubtitle = useCallback(async (e) => {
 		const index = parseInt(e.currentTarget.dataset.index, 10);

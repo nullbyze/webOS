@@ -83,8 +83,9 @@ export const testVp9Support = (lunaResult = null, webosVersion = 4) => {
 };
 
 export const testDtsSupport = (webosVersion) => {
-	// DTS audio is not supported by LG TV 2020-2022 (webOS 5.0, 6.0 and 22) models
-	if (webosVersion >= 5 && webosVersion < 23) {
+	// DTS audio is not natively supported on webOS 5+ (2020 and later LG TVs).
+	// LG dropped DTS licensing starting with 2020 models and has not re-added it.
+	if (webosVersion >= 5) {
 		return false;
 	}
 	return true;
@@ -98,10 +99,7 @@ export const testDtsInContainer = (webosVersion, container) => {
 
 	const containerLower = (container || '').toLowerCase();
 
-	if (webosVersion >= 23) {
-		return ['mkv', 'matroska', 'mp4', 'm4v', 'mov', 'ts', 'mpegts', 'mts', 'm2ts'].includes(containerLower);
-	}
-
+	// webOS < 5 supports DTS in limited containers
 	return ['mkv', 'matroska', 'avi'].includes(containerLower);
 };
 
