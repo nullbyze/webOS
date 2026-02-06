@@ -1182,6 +1182,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 	const handleProgressKeyDown = useCallback((e) => {
 		if (!videoRef.current) return;
 		const step = settings.seekStep;
+		showControls();
 
 		if (e.key === 'ArrowLeft' || e.keyCode === 37) {
 			e.preventDefault();
@@ -1200,7 +1201,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 			setFocusRow('bottom');
 			setIsSeeking(false);
 		}
-	}, [settings.seekStep, seekByOffset]);
+	}, [settings.seekStep, seekByOffset, showControls]);
 
 	const handleProgressBlur = useCallback(() => {
 		setIsSeeking(false);
@@ -1341,6 +1342,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 			if (controlsVisible && !activeModal) {
 				if (key === 'ArrowUp' || e.keyCode === 38) {
 					e.preventDefault();
+					showControls();
 					setFocusRow(prev => {
 						if (prev === 'bottom') return 'progress';
 						if (prev === 'progress') return 'top';
@@ -1350,6 +1352,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 				}
 				if (key === 'ArrowDown' || e.keyCode === 40) {
 					e.preventDefault();
+					showControls();
 					setFocusRow(prev => {
 						if (prev === 'top') return 'progress';
 						if (prev === 'progress') return 'bottom';
