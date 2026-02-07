@@ -392,14 +392,22 @@ export const getPlayMethod = (mediaSource, capabilities) => {
 		}
 	}
 
-	// Bitrate check
+	// Bitrate check per LG AV format docs, limits vary by codec and panel resolution
 	let bitrateOk = true;
 	if (videoStream?.BitRate) {
-		const maxBitrate = capabilities.uhd8K ? 100000000 :
-						   capabilities.uhd ? 60000000 : 40000000;
+		let maxBitrate;
+		const isHevc = ['hevc', 'h265', 'hev1', 'hvc1'].includes(videoCodec);
+		const isH264 = ['h264', 'avc'].includes(videoCodec);
+		if (capabilities.uhd8K) {
+			maxBitrate = 100_000_000; // 8K: 100 Mbps (HEVC)
+		} else if (capabilities.uhd) {
+			maxBitrate = isHevc ? 60_000_000 : isH264 ? 50_000_000 : 60_000_000;
+		} else {
+			maxBitrate = 40_000_000; // FHD: 40 Mbps (H.264 and HEVC)
+		}
 		bitrateOk = videoStream.BitRate <= maxBitrate;
 		if (!bitrateOk) {
-			console.log('[webosVideo] Bitrate exceeds limit:', videoStream.BitRate, '>', maxBitrate);
+			console.log('[webosVideo] Bitrate exceeds limit:', videoStream.BitRate, '>', maxBitrate, '(codec:', videoCodec, ')');
 		}
 	}
 

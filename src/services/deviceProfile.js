@@ -545,7 +545,15 @@ export const getJellyfinDeviceProfile = async () => {
 	// Per LG docs: webOS 4+ UHD models support H.264 Level 5.1 at 3840x2160@30P
 	// Non-UHD models: Level 4.2 for 1080p@60P
 	const h264MaxLevel = (caps.webosVersion >= 4 && (caps.uhd || caps.uhd8K)) ? '51' : '42';
-	console.log('[deviceProfile] H.264 max level:', h264MaxLevel, '(webOS', caps.webosVersion, ', UHD:', caps.uhd, ')');
+
+	// HEVC level per panel resolution (per LG AV format docs)
+	// 8K → Level 6.1 (Main/Main10@L6.1, up to 7680x4320@60P)
+	// UHD → Level 5.1 (Main/Main10@L5.1, up to 3840x2160@60P)
+	// FHD → Level 4.1 (Main/Main10@L4.1, up to 1920x1080@60P)
+	const hevcMaxLevel = caps.uhd8K ? '186' : caps.uhd ? '153' : '123';
+
+	console.log('[deviceProfile] Codec levels — H.264:', h264MaxLevel, 'HEVC:', hevcMaxLevel,
+		'(webOS', caps.webosVersion, ', UHD:', caps.uhd, ', 8K:', caps.uhd8K, ')');
 
 	const codecProfiles = [
 		{
@@ -591,7 +599,7 @@ export const getJellyfinDeviceProfile = async () => {
 				{
 					Condition: 'LessThanEqual',
 					Property: 'VideoLevel',
-					Value: '153',
+					Value: hevcMaxLevel,
 					IsRequired: false
 				}
 			]
