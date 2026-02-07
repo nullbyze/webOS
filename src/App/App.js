@@ -289,10 +289,10 @@ const AppContent = (props) => {
 		try {
 			// Convert setting value to API format
 			const contentType = settings.shuffleContentType || 'both';
-			const includeItemTypes = contentType === 'movies' ? 'Movie' 
-				: contentType === 'tv' ? 'Series' 
+			const includeItemTypes = contentType === 'movies' ? 'Movie'
+				: contentType === 'tv' ? 'Series'
 				: 'Movie,Series';
-			
+
 			let item;
 			if (unifiedMode) {
 				// Get random items from all servers
@@ -306,7 +306,7 @@ const AppContent = (props) => {
 					item = result.Items[0];
 				}
 			}
-			
+
 			if (item) {
 				setSelectedItem(item);
 				navigateTo(PANELS.DETAILS);

@@ -19,11 +19,25 @@ jobs:
           node-version: lts/*
           cache: npm
 
-      - run: npm ci --force
-      - run: npm run build
+      - name: Install dependencies
+        run: npm ci --force
+
+      - name: Build
+        run: |
+          npm run build 2>&1 | while IFS= read -r line; do
+            if echo "$line" | grep -qiE "(\bfailed\b|\berror\b|\bfatal\b)"; then
+              echo "::error::$line"
+            elif echo "$line" | grep -qiE "(\bwarning\b|\bwarn\b)"; then
+              echo "::warning::$line"
+            else
+              echo "$line"
+            fi
+          done
+          exit ${PIPESTATUS[0]}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: moonfin_webos_ipk
           path: |
