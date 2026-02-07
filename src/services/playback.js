@@ -256,8 +256,13 @@ const extractChapters = (mediaSource) => {
 	}));
 };
 
-// Default bitrate for transcoding: 20 Mbps (reasonable for 1080p content)
-const DEFAULT_MAX_BITRATE = 20000000;
+// Derive max streaming bitrate from device capabilities
+// Per LG AV format docs: 8K=100Mbps, UHD=60Mbps, FHD=40Mbps
+const getAutoMaxBitrate = (capabilities) => {
+	if (capabilities.uhd8K) return 100_000_000;
+	if (capabilities.uhd) return 60_000_000;
+	return 40_000_000;
+};
 
 export const getPlaybackInfo = async (itemId, options = {}) => {
 	const deviceProfile = await getJellyfinDeviceProfile();
@@ -267,7 +272,8 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 	const api = options.item ? getApiForItem(options.item) : jellyfinApi.api;
 	const creds = options.item ? getServerCredentials(options.item) : null;
 
-	const maxBitrate = options.maxBitrate || DEFAULT_MAX_BITRATE;
+	// maxBitrate: user-set value (>0), or auto-detect from device capabilities
+	const maxBitrate = options.maxBitrate > 0 ? options.maxBitrate : getAutoMaxBitrate(capabilities);
 
 	const requestedStartTime = options.startPositionTicks || 0;
 	console.log('[playback] getPlaybackInfo called:', {
