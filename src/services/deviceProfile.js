@@ -174,7 +174,10 @@ export const getDeviceCapabilities = async () => {
 
 		// HDR10/HLG: All webOS 4+ TVs support HDR10 and HLG via HEVC Main10 profile
 		hdr10: cfg['tv.model.supportHDR'] === true || webosVersion >= 4,
-		hdr10Plus: webosVersion >= 6,
+		// webOS has no native HDR10+ support, but HDR10+ content plays fine on HDR10
+		// devices (dynamic metadata is simply ignored). Set to match hdr10 so we
+		// don't unnecessarily force a transcode for HDR10+ files.
+		hdr10Plus: cfg['tv.model.supportHDR'] === true || webosVersion >= 4,
 		hlg: cfg['tv.model.supportHDR'] === true || webosVersion >= 4,
 
 		// Dolby Vision: tv.model.supportDolbyVisionHDR is the correct key
