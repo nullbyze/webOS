@@ -83,20 +83,26 @@ export const testVp9Support = (lunaResult = null, webosVersion = 4) => {
 };
 
 // Per LG developer documentation, DTS support varies by webOS version AND container:
-//   webOS 4/4.5: DTS in AVI + MKV
+//   webOS 4/4.5: DTS in AVI + MKV (unconditionally supported)
 //   webOS 5/6/22: DTS in MKV only
-//   webOS 23+: DTS in MKV + MP4 + TS (model-specific)
+//   webOS 23+: DTS in MKV + MP4 + TS (model-specific, detected via tv.model.edidType)
 // The Luna API config key 'tv.model.edidType' indicates DTS support when it contains 'dts'.
 // e.g. "TrueHD+dts" means DTS is supported, plain "TrueHD" means no DTS.
+// This is how LG checks DTS capability in their own Chromium fork.
+//
+// Note on soundbars: When edidType reports DTS support, the TV can decode DTS internally.
+// However, if a soundbar is connected that doesn't support DTS, the TV decodes DTS and
+// sends only 2.0 PCM to the soundbar, losing surround channels. In that case, server-side
+// transcode to AAC/AC3 would be preferable to preserve channel layout, but there's no
+// reliable way to detect connected soundbar capabilities via Luna APIs.
 export const getDtsContainerSupport = (webosVersion, edidHasDts = false) => {
 	if (webosVersion >= 23) {
-		// Use edidType result if available, otherwise assume supported
-		// (Jellyfin will fall back to transcoding if model can't decode)
-		const dtsEnabled = edidHasDts || edidHasDts === null;
+		// edidType is the authoritative source on webOS 23+.
+		// If the key is absent or doesn't contain 'dts', the TV cannot decode DTS.
 		return {
-			mkv: dtsEnabled,
-			mp4: dtsEnabled,
-			ts: dtsEnabled,
+			mkv: !!edidHasDts,
+			mp4: !!edidHasDts,
+			ts: !!edidHasDts,
 			avi: false
 		};
 	}
@@ -104,7 +110,7 @@ export const getDtsContainerSupport = (webosVersion, edidHasDts = false) => {
 		// webOS 5/6/22: DTS in MKV only
 		return { mkv: true, mp4: false, ts: false, avi: false };
 	}
-	// webOS 4/4.5: DTS in AVI + MKV
+	// webOS 4/4.5: DTS unconditionally supported in AVI + MKV
 	return { mkv: true, mp4: false, ts: false, avi: true };
 };
 
@@ -149,9 +155,9 @@ export const getDeviceCapabilities = async () => {
 
 	// DTS detection: tv.model.edidType contains 'dts' when DTS is supported
 	// e.g. "TrueHD+dts" = DTS supported, plain "TrueHD" = no DTS
-	// null = key not present (unknown), true/false = detected from edidType
+	// If the key is absent or doesn't mention dts, the TV cannot decode DTS.
 	const rawEdidType = cfg['tv.model.edidType'];
-	const edidHasDts = rawEdidType != null ? rawEdidType.toLowerCase().includes('dts') : null;
+	const edidHasDts = rawEdidType != null && rawEdidType.toLowerCase().includes('dts');
 
 	// Per-container DTS support based on LG documentation + edidType detection
 	const dtsSupport = getDtsContainerSupport(webosVersion, edidHasDts);
