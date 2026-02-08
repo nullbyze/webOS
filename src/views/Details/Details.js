@@ -21,12 +21,14 @@ const HorizontalContainer = SpotlightContainerDecorator({
 }, 'div');
 
 const getResolutionName = (width, height) => {
-	if (width >= 3800 && height >= 2000) return '4K';
-	if (width >= 2500 && height >= 1400) return '1440P';
-	if (width >= 1900 && height >= 1000) return '1080P';
-	if (width >= 1260 && height >= 700) return '720P';
-	if (width >= 1000 && height >= 560) return '576P';
-	if (width >= 850 && height >= 460) return '480P';
+	// Use width as primary indicator — non-16:9 aspect ratios (e.g. 2:1 ultrawide)
+	// can have reduced heights (3840x1920, 3840x1600) that are still 4K content
+	if (width >= 3800) return '4K';
+	if (width >= 2500) return '1440P';
+	if (width >= 1900 || height >= 1000) return '1080P';
+	if (width >= 1260 || height >= 700) return '720P';
+	if (width >= 1000 || height >= 560) return '576P';
+	if (width >= 850 || height >= 460) return '480P';
 	return height + 'P';
 };
 
