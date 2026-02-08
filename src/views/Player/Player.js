@@ -18,6 +18,8 @@ import {
 } from '../../services/webosVideo';
 import {useSettings} from '../../context/SettingsContext';
 import TrickplayPreview from '../../components/TrickplayPreview';
+import SubtitleOffsetOverlay from './SubtitleOffsetOverlay';
+import SubtitleSettingsOverlay from './SubtitleSettingsOverlay';
 
 import css from './Player.module.less';
 
@@ -168,6 +170,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 	const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState(-1);
 	const [subtitleTrackEvents, setSubtitleTrackEvents] = useState(null)
 	const [currentSubtitleText, setCurrentSubtitleText] = useState(null);
+	const [subtitleOffset, setSubtitleOffset] = useState(0);
 	const [controlsVisible, setControlsVisible] = useState(false);
 	const [activeModal, setActiveModal] = useState(null);
 	const [playbackRate, setPlaybackRate] = useState(1);
@@ -191,6 +194,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 	const runTimeRef = useRef(0);
 	const healthMonitorRef = useRef(null);
 	const nextEpisodeTimerRef = useRef(null);
+	const hasTriggeredNextEpisodeRef = useRef(false);
 	const unregisterAppStateRef = useRef(null);
 	const controlsTimeoutRef = useRef(null);
 	const hlsRecoveryRef = useRef({ attempts: 0, lastErrorTime: 0 });
@@ -876,9 +880,13 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 			}
 
 			if (subtitleTrackEvents && subtitleTrackEvents.length > 0) {
+				// Apply offset: lookupTime = currentTime - offset
+				// If offset is positive (delay), we look at earlier time in the subtitle track
+				const lookupTicks = ticks - (subtitleOffset * 10000000);
+
 				let foundSubtitle = null;
 				for (const event of subtitleTrackEvents) {
-					if (ticks >= event.StartPositionTicks && ticks <= event.EndPositionTicks) {
+					if (lookupTicks >= event.StartPositionTicks && lookupTicks <= event.EndPositionTicks) {
 						foundSubtitle = event.Text;
 						break;
 					}
@@ -913,15 +921,16 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 			if (nextEpisode && runTimeRef.current > 0) {
 				const remaining = runTimeRef.current - ticks;
 				const nearEnd = remaining < 300000000;
-				if (nearEnd && !showNextEpisode && !showSkipCredits) {
+				if (nearEnd && !showNextEpisode && !showSkipCredits && !hasTriggeredNextEpisodeRef.current) {
 					setShowNextEpisode(true);
+					hasTriggeredNextEpisodeRef.current = true;
 					if (settings.autoPlay) {
 						startNextEpisodeCountdown();
 					}
 				}
 			}
 		}
-	}, [playMethod, mediaSegments, settings.skipIntro, settings.skipCredits, settings.autoPlay, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, handlePlayNextEpisode, subtitleTrackEvents]);
+	}, [playMethod, mediaSegments, settings.skipIntro, settings.skipCredits, settings.autoPlay, nextEpisode, showSkipCredits, showNextEpisode, startNextEpisodeCountdown, handlePlayNextEpisode, subtitleTrackEvents, subtitleOffset]);
 
 	const handleWaiting = useCallback(() => {
 		setIsBuffering(true);
@@ -1240,6 +1249,10 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 		}
 	}, [handleButtonAction]);
 
+	const handleSubtitleOffsetChange = useCallback((newOffset) => {
+		setSubtitleOffset(newOffset);
+	}, []);
+
 	const stopPropagation = useCallback((e) => {
 		e.stopPropagation();
 	}, []);
@@ -1445,13 +1458,19 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 				<div
 					className={css.subtitleOverlay}
 					style={{
-						bottom: `${settings.subtitlePosition === 'bottom' ? 10 : settings.subtitlePosition === 'lower' ? 15 : settings.subtitlePosition === 'middle' ? 25 : 35}%`
+						bottom: settings.subtitlePosition === 'absolute'
+							? `${100 - settings.subtitlePositionAbsolute}%`
+							: `${settings.subtitlePosition === 'bottom' ? 10 : settings.subtitlePosition === 'lower' ? 20 : settings.subtitlePosition === 'middle' ? 30 : 40}%`,
+						opacity: (settings.subtitleOpacity || 100) / 100
 					}}
 				>
 					<div
 						className={css.subtitleText}
 						style={{
-							fontSize: `${settings.subtitleSize === 'small' ? 28 : settings.subtitleSize === 'medium' ? 36 : settings.subtitleSize === 'large' ? 44 : 52}px`
+							fontSize: `${settings.subtitleSize === 'small' ? 36 : settings.subtitleSize === 'medium' ? 44 : settings.subtitleSize === 'large' ? 52 : 60}px`,
+							backgroundColor: `${settings.subtitleBackgroundColor || '#000000'}${Math.round(((settings.subtitleBackground !== undefined ? settings.subtitleBackground : 75) / 100) * 255).toString(16).padStart(2, '0')}`,
+							color: settings.subtitleColor || '#ffffff',
+							textShadow: `0 0 ${settings.subtitleShadowBlur || 0.1}em ${settings.subtitleShadowColor || '#000000'}${Math.round(((settings.subtitleShadowOpacity !== undefined ? settings.subtitleShadowOpacity : 50) / 100) * 255).toString(16).padStart(2, '0')}`
 						}}
 						// eslint-disable-next-line react/no-danger
 						dangerouslySetInnerHTML={{
@@ -1459,6 +1478,8 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 								.replace(/\\N/gi, '<br/>')
 								.replace(/\r?\n/gi, '<br/>')
 								.replace(/{\\.*?}/gi, '') // Remove ASS/SSA style tags
+								.replace(/ {2,}/g, ' ')  // Collapse multiple spaces left by tag removal
+								.trim()
 						}}
 					/>
 				</div>
@@ -1523,7 +1544,7 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 									className={css.nextCancelBtn}
 									onClick={cancelNextEpisodeCountdown}
 								>
-									Cancel
+									Hide
 								</SpottableButton>
 							</div>
 						</div>
@@ -1656,6 +1677,17 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 								data-index={-1}
 								data-selected={selectedSubtitleIndex === -1 ? 'true' : undefined}
 								onClick={handleSelectSubtitle}
+								onKeyDown={(e) => {
+									if (e.keyCode === 39) { // Right -> Appearance
+										e.preventDefault();
+										e.stopPropagation();
+										Spotlight.focus('btn-subtitle-appearance');
+									} else if (e.keyCode === 37) { // Left -> Offset
+										e.preventDefault();
+										e.stopPropagation();
+										Spotlight.focus('btn-subtitle-offset');
+									}
+								}}
 							>
 								<span className={css.trackName}>Off</span>
 							</SpottableButton>
@@ -1666,13 +1698,28 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 									data-index={stream.index}
 									data-selected={stream.index === selectedSubtitleIndex ? 'true' : undefined}
 									onClick={handleSelectSubtitle}
+									onKeyDown={(e) => {
+										if (e.keyCode === 39) { // Right -> Appearance
+											e.preventDefault();
+											e.stopPropagation();
+											Spotlight.focus('btn-subtitle-appearance');
+										} else if (e.keyCode === 37) { // Left -> Offset
+											e.preventDefault();
+											e.stopPropagation();
+											Spotlight.focus('btn-subtitle-offset');
+										}
+									}}
 								>
 									<span className={css.trackName}>{stream.displayTitle}</span>
 									{stream.isForced && <span className={css.trackInfo}>Forced</span>}
 								</SpottableButton>
 							))}
 						</div>
-						<p className={css.modalFooter}>Press BACK to close</p>
+						<p className={css.modalFooter}>
+							<SpottableButton spotlightId="btn-subtitle-offset" className={css.actionBtn} onClick={() => openModal('subtitleOffset')}>Offset</SpottableButton>
+							<SpottableButton spotlightId="btn-subtitle-appearance" className={css.actionBtn} onClick={() => openModal('subtitleSettings')} style={{marginLeft: 15}}>Appearance</SpottableButton>
+						</p>
+						<p className={css.modalFooter} style={{marginTop: 5, fontSize: 14, opacity: 0.5}}>Press BACK to close</p>
 					</ModalContainer>
 				</div>
 			)}
@@ -1975,6 +2022,20 @@ const Player = ({item, resume, initialAudioIndex, initialSubtitleIndex, onEnded,
 					</div>
 				);
 			})()}
+
+			{/* Subtitle Offset Modal */}
+			<SubtitleOffsetOverlay
+				visible={activeModal === 'subtitleOffset'}
+				currentOffset={subtitleOffset}
+				onClose={closeModal}
+				onOffsetChange={handleSubtitleOffsetChange}
+			/>
+
+			{/* Subtitle Settings Modal */}
+			<SubtitleSettingsOverlay
+				visible={activeModal === 'subtitleSettings'}
+				onClose={closeModal}
+			/>
 		</div>
 	);
 };
