@@ -4,6 +4,7 @@ import SpotlightContainerDecorator from '@enact/spotlight/SpotlightContainerDeco
 import Spotlight from '@enact/spotlight';
 import Popup from '@enact/sandstone/Popup';
 import Button from '@enact/sandstone/Button';
+import Slider from '@enact/sandstone/Slider';
 import {useAuth} from '../../context/AuthContext';
 import {useSettings, DEFAULT_HOME_ROWS} from '../../context/SettingsContext';
 import {useJellyseerr} from '../../context/JellyseerrContext';
@@ -91,17 +92,76 @@ const BLUR_OPTIONS = [
 ];
 
 const SUBTITLE_SIZE_OPTIONS = [
-	{value: 'small', label: 'Small', fontSize: 28},
-	{value: 'medium', label: 'Medium', fontSize: 36},
-	{value: 'large', label: 'Large', fontSize: 44},
-	{value: 'xlarge', label: 'Extra Large', fontSize: 52}
+	{value: 'small', label: 'Small', fontSize: 36},
+	{value: 'medium', label: 'Medium', fontSize: 44},
+	{value: 'large', label: 'Large', fontSize: 52},
+	{value: 'xlarge', label: 'Extra Large', fontSize: 60}
 ];
 
 const SUBTITLE_POSITION_OPTIONS = [
 	{value: 'bottom', label: 'Bottom', offset: 10},
-	{value: 'lower', label: 'Lower', offset: 15},
-	{value: 'middle', label: 'Middle', offset: 25},
-	{value: 'higher', label: 'Higher', offset: 35}
+	{value: 'lower', label: 'Lower', offset: 20},
+	{value: 'middle', label: 'Middle', offset: 30},
+	{value: 'higher', label: 'Higher', offset: 40},
+	{value: 'absolute', label: 'Absolute', offset: 0}
+];
+
+const SUBTITLE_BACKGROUND_OPTIONS = [
+	{value: 0, label: 'None'},
+	{value: 25, label: 'Light (25%)'},
+	{value: 50, label: 'Medium (50%)'},
+	{value: 75, label: 'Dark (75%)'},
+	{value: 90, label: 'Very Dark (90%)'},
+	{value: 100, label: 'Solid Black'}
+];
+
+const SUBTITLE_COLOR_OPTIONS = [
+	{value: '#ffffff', label: 'White'},
+	{value: '#ffff00', label: 'Yellow'},
+	{value: '#00ffff', label: 'Cyan'},
+	{value: '#ff00ff', label: 'Magenta'},
+	{value: '#00ff00', label: 'Green'},
+	{value: '#ff0000', label: 'Red'},
+	{value: '#808080', label: 'Grey'},
+	{value: '#404040', label: 'Dark Grey'}
+];
+
+const SUBTITLE_SHADOW_COLOR_OPTIONS = [
+	{value: '#000000', label: 'Black'},
+	{value: '#ffffff', label: 'White'},
+	{value: '#808080', label: 'Grey'},
+	{value: '#404040', label: 'Dark Grey'},
+	{value: '#ff0000', label: 'Red'},
+	{value: '#00ff00', label: 'Green'},
+	{value: '#0000ff', label: 'Blue'}
+];
+
+const SUBTITLE_BACKGROUND_COLOR_OPTIONS = [
+	{value: '#000000', label: 'Black'},
+	{value: '#ffffff', label: 'White'},
+	{value: '#808080', label: 'Grey'},
+	{value: '#404040', label: 'Dark Grey'},
+	{value: '#000080', label: 'Navy'}
+];
+
+const SUBTITLE_OPACITY_OPTIONS = [
+	{value: 100, label: '100%'},
+	{value: 90, label: '90%'},
+	{value: 80, label: '80%'},
+	{value: 70, label: '70%'},
+	{value: 60, label: '60%'},
+	{value: 50, label: '50%'},
+	{value: 25, label: '25%'}
+];
+
+const SUBTITLE_ABSOLUTE_POSITION_OPTIONS = [
+	{value: 95, label: '95% (Bottom)'},
+	{value: 90, label: '90%'},
+	{value: 85, label: '85%'},
+	{value: 80, label: '80%'},
+	{value: 70, label: '70%'},
+	{value: 50, label: '50% (Middle)'},
+	{value: 20, label: '20% (Top)'}
 ];
 
 const SEEK_STEP_OPTIONS = [
@@ -375,6 +435,46 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 		updateSetting('subtitlePosition', SUBTITLE_POSITION_OPTIONS[nextIndex].value);
 	}, [settings.subtitlePosition, updateSetting]);
 
+	const cycleSubtitleOpacity = useCallback(() => {
+		const currentIndex = SUBTITLE_OPACITY_OPTIONS.findIndex(o => o.value === settings.subtitleOpacity);
+		const nextIndex = (currentIndex + 1) % SUBTITLE_OPACITY_OPTIONS.length;
+		updateSetting('subtitleOpacity', SUBTITLE_OPACITY_OPTIONS[nextIndex].value);
+	}, [settings.subtitleOpacity, updateSetting]);
+
+	const cycleSubtitleAbsolutePosition = useCallback(() => {
+		const currentIndex = SUBTITLE_ABSOLUTE_POSITION_OPTIONS.findIndex(o => o.value === settings.subtitlePositionAbsolute);
+		const nextIndex = (currentIndex + 1) % SUBTITLE_ABSOLUTE_POSITION_OPTIONS.length;
+		updateSetting('subtitlePositionAbsolute', SUBTITLE_ABSOLUTE_POSITION_OPTIONS[nextIndex].value);
+	}, [settings.subtitlePositionAbsolute, updateSetting]);
+
+	const cycleSubtitleBackground = useCallback(() => {
+		const currentIndex = SUBTITLE_BACKGROUND_OPTIONS.findIndex(o => o.value === settings.subtitleBackground);
+		const index = currentIndex === -1 ? 3 : currentIndex;
+		const nextIndex = (index + 1) % SUBTITLE_BACKGROUND_OPTIONS.length;
+		updateSetting('subtitleBackground', SUBTITLE_BACKGROUND_OPTIONS[nextIndex].value);
+	}, [settings.subtitleBackground, updateSetting]);
+
+	const cycleSubtitleColor = useCallback(() => {
+		const currentIndex = SUBTITLE_COLOR_OPTIONS.findIndex(o => o.value === settings.subtitleColor);
+		const index = currentIndex === -1 ? 0 : currentIndex;
+		const nextIndex = (index + 1) % SUBTITLE_COLOR_OPTIONS.length;
+		updateSetting('subtitleColor', SUBTITLE_COLOR_OPTIONS[nextIndex].value);
+	}, [settings.subtitleColor, updateSetting]);
+
+	const cycleSubtitleShadowColor = useCallback(() => {
+		const currentIndex = SUBTITLE_SHADOW_COLOR_OPTIONS.findIndex(o => o.value === settings.subtitleShadowColor);
+		const index = currentIndex === -1 ? 0 : currentIndex;
+		const nextIndex = (index + 1) % SUBTITLE_SHADOW_COLOR_OPTIONS.length;
+		updateSetting('subtitleShadowColor', SUBTITLE_SHADOW_COLOR_OPTIONS[nextIndex].value);
+	}, [settings.subtitleShadowColor, updateSetting]);
+
+	const cycleSubtitleBackgroundColor = useCallback(() => {
+		const currentIndex = SUBTITLE_BACKGROUND_COLOR_OPTIONS.findIndex(o => o.value === settings.subtitleBackgroundColor);
+		const index = currentIndex === -1 ? 0 : currentIndex;
+		const nextIndex = (index + 1) % SUBTITLE_BACKGROUND_COLOR_OPTIONS.length;
+		updateSetting('subtitleBackgroundColor', SUBTITLE_BACKGROUND_COLOR_OPTIONS[nextIndex].value);
+	}, [settings.subtitleBackgroundColor, updateSetting]);
+
 	const cycleSeekStep = useCallback(() => {
 		const currentIndex = SEEK_STEP_OPTIONS.findIndex(o => o.value === settings.seekStep);
 		const nextIndex = (currentIndex + 1) % SEEK_STEP_OPTIONS.length;
@@ -574,6 +674,36 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 		return option?.label || 'Bottom';
 	};
 
+	const getSubtitleOpacityLabel = () => {
+		const option = SUBTITLE_OPACITY_OPTIONS.find(o => o.value === settings.subtitleOpacity);
+		return option?.label || '100%';
+	};
+
+	const getSubtitleAbsolutePositionLabel = () => {
+		const option = SUBTITLE_ABSOLUTE_POSITION_OPTIONS.find(o => o.value === settings.subtitlePositionAbsolute);
+		return option?.label || '90%';
+	};
+
+	const getSubtitleBackgroundLabel = () => {
+		const option = SUBTITLE_BACKGROUND_OPTIONS.find(o => o.value === settings.subtitleBackground);
+		return option?.label || 'Dark (75%)';
+	};
+
+	const getSubtitleColorLabel = () => {
+		const option = SUBTITLE_COLOR_OPTIONS.find(o => o.value === settings.subtitleColor);
+		return option?.label || 'White';
+	};
+
+	const getSubtitleShadowColorLabel = () => {
+		const option = SUBTITLE_SHADOW_COLOR_OPTIONS.find(o => o.value === settings.subtitleShadowColor);
+		return option?.label || 'Black';
+	};
+
+	const getSubtitleBackgroundColorLabel = () => {
+		const option = SUBTITLE_BACKGROUND_COLOR_OPTIONS.find(o => o.value === settings.subtitleBackgroundColor);
+		return option?.label || 'Black';
+	};
+
 	const getSeekStepLabel = () => {
 		const option = SEEK_STEP_OPTIONS.find(o => o.value === settings.seekStep);
 		return option?.label || '10 seconds';
@@ -678,6 +808,103 @@ const Settings = ({onBack, onLogout, onAddServer, onAddUser}) => {
 				{renderSettingItem('Subtitle Position', 'Vertical position of subtitles',
 					getSubtitlePositionLabel(), cycleSubtitlePosition, 'setting-subtitlePosition'
 				)}
+				{settings.subtitlePosition === 'absolute' && (
+					<div className={css.sliderItem}>
+						<div className={css.sliderLabel}>
+							<span>Absolute Position</span>
+							<span className={css.sliderValue}>{settings.subtitlePositionAbsolute}%</span>
+						</div>
+						<Slider
+							min={0}
+							max={100}
+							step={5}
+							value={settings.subtitlePositionAbsolute}
+							onChange={(e) => updateSetting('subtitlePositionAbsolute', e.value)}
+							className={css.settingsSlider}
+							tooltip={false}
+							spotlightId="setting-subtitlePositionAbsolute"
+						/>
+					</div>
+				)}
+				<div className={css.sliderItem}>
+					<div className={css.sliderLabel}>
+						<span>Text Opacity</span>
+						<span className={css.sliderValue}>{settings.subtitleOpacity}%</span>
+					</div>
+					<Slider
+						min={0}
+						max={100}
+						step={5}
+						value={settings.subtitleOpacity}
+						onChange={(e) => updateSetting('subtitleOpacity', e.value)}
+						className={css.settingsSlider}
+						tooltip={false}
+						spotlightId="setting-subtitleOpacity"
+					/>
+				</div>
+				{renderSettingItem('Text Color', 'Color of subtitle text',
+					getSubtitleColorLabel(), cycleSubtitleColor, 'setting-subtitleColor'
+				)}
+
+				<div className={css.divider} />
+
+				{renderSettingItem('Shadow Color', 'Color of subtitle shadow',
+					getSubtitleShadowColorLabel(), cycleSubtitleShadowColor, 'setting-subtitleShadowColor'
+				)}
+				<div className={css.sliderItem}>
+					<div className={css.sliderLabel}>
+						<span>Shadow Opacity</span>
+						<span className={css.sliderValue}>{settings.subtitleShadowOpacity}%</span>
+					</div>
+					<Slider
+						min={0}
+						max={100}
+						step={5}
+						value={settings.subtitleShadowOpacity}
+						onChange={(e) => updateSetting('subtitleShadowOpacity', e.value)}
+						className={css.settingsSlider}
+						tooltip={false}
+						spotlightId="setting-subtitleShadowOpacity"
+					/>
+				</div>
+				<div className={css.sliderItem}>
+					<div className={css.sliderLabel}>
+						<span>Shadow Size (Blur)</span>
+						<span className={css.sliderValue}>{settings.subtitleShadowBlur ? settings.subtitleShadowBlur.toFixed(1) : '0.1'}</span>
+					</div>
+					<Slider
+						min={0}
+						max={1}
+						step={0.1}
+						value={settings.subtitleShadowBlur || 0.1}
+						onChange={(e) => updateSetting('subtitleShadowBlur', e.value)}
+						className={css.settingsSlider}
+						tooltip={false}
+						spotlightId="setting-subtitleShadowBlur"
+					/>
+				</div>
+
+				<div className={css.divider} />
+
+				{renderSettingItem('Background Color', 'Color of subtitle background',
+					getSubtitleBackgroundColorLabel(), cycleSubtitleBackgroundColor, 'setting-subtitleBackgroundColor'
+				)}
+				<div className={css.sliderItem}>
+					<div className={css.sliderLabel}>
+						<span>Background Opacity</span>
+						<span className={css.sliderValue}>{settings.subtitleBackground}%</span>
+					</div>
+					<Slider
+						min={0}
+						max={100}
+						step={5}
+						value={settings.subtitleBackground}
+						onChange={(e) => updateSetting('subtitleBackground', e.value)}
+						className={css.settingsSlider}
+						tooltip={false}
+						spotlightId="setting-subtitleBackground"
+					/>
+				</div>
 			</div>
 			<div className={css.settingsGroup}>
 				<h2>Transcoding</h2>
