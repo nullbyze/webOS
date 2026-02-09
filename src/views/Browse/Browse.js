@@ -739,9 +739,9 @@ const Browse = ({
 			if (inValue >= 1 && outValue <= 0) {
 				clearInterval(backdropFadeIntervalRef.current);
 				backdropFadeIntervalRef.current = null;
-				setPrevBackdropUrl(null); // altes Bild aufräumen
+				setPrevBackdropUrl(null);
 			}
-		}, 45); // ca. 300ms
+		}, 45); // ca. 450ms
 	}, []);
 
 	useEffect(() => {
