@@ -36,7 +36,7 @@ const LETTERS = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'
 
 const BACKDROP_DEBOUNCE_MS = 300;
 
-const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
+const GenreBrowse = ({genre, libraryId, onSelectItem, backHandlerRef}) => {
 	const {api, serverUrl} = useAuth();
 	const {settings} = useSettings();
 	const [items, setItems] = useState([]);
@@ -265,24 +265,25 @@ const GenreBrowse = ({genre, libraryId, onSelectItem, onBack}) => {
 	}, []);
 
 	useEffect(() => {
-		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
-				if (showSortModal || showFilterModal) {
-					setShowSortModal(false);
-					setShowFilterModal(false);
-				} else {
-					onBack?.();
-				}
+		if (!backHandlerRef) return;
+		backHandlerRef.current = () => {
+			if (showSortModal || showFilterModal) {
+				setShowSortModal(false);
+				setShowFilterModal(false);
+				return true;
 			}
+			return false;
 		};
-		document.addEventListener('keydown', handleKeyDown);
+		return () => { if (backHandlerRef) backHandlerRef.current = null; };
+	}, [backHandlerRef, showSortModal, showFilterModal]);
+
+	useEffect(() => {
 		return () => {
-			document.removeEventListener('keydown', handleKeyDown);
 			if (backdropTimeoutRef.current) {
 				clearTimeout(backdropTimeoutRef.current);
 			}
 		};
-	}, [showSortModal, showFilterModal, onBack]);
+	}, []);
 
 	const handleSortSelect = useCallback((ev) => {
 		const key = ev.currentTarget?.dataset?.sortKey;

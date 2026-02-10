@@ -36,7 +36,7 @@ const FILTER_OPTIONS = [
 
 const LETTERS = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
 
-const Library = ({library, onSelectItem, onBack}) => {
+const Library = ({library, onSelectItem, backHandlerRef}) => {
 const {api, serverUrl} = useAuth();
 
 // Support cross-server libraries
@@ -267,19 +267,17 @@ setShowFilterModal(false);
 }, []);
 
 useEffect(() => {
-const handleKeyDown = (e) => {
-if (e.keyCode === 461 || e.keyCode === 27) {
-if (showSortModal || showFilterModal) {
-setShowSortModal(false);
-setShowFilterModal(false);
-} else {
-onBack?.();
-}
-}
-};
-document.addEventListener('keydown', handleKeyDown);
-return () => document.removeEventListener('keydown', handleKeyDown);
-}, [showSortModal, showFilterModal, onBack]);
+	if (!backHandlerRef) return;
+	backHandlerRef.current = () => {
+		if (showSortModal || showFilterModal) {
+			setShowSortModal(false);
+			setShowFilterModal(false);
+			return true;
+		}
+		return false;
+	};
+	return () => { if (backHandlerRef) backHandlerRef.current = null; };
+}, [backHandlerRef, showSortModal, showFilterModal]);
 
 const handleSortSelect = useCallback((ev) => {
 const key = ev.currentTarget?.dataset?.sortKey;

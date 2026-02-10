@@ -22,7 +22,7 @@ const SORT_OPTIONS = [
 	{key: 'random', label: 'Random'}
 ];
 
-const Genres = ({onSelectGenre, onBack}) => {
+const Genres = ({onSelectGenre, backHandlerRef}) => {
 	const {api, serverUrl, hasMultipleServers} = useAuth();
 	const {settings} = useSettings();
 	const unifiedMode = settings.unifiedLibraryMode && hasMultipleServers;
@@ -262,19 +262,17 @@ const Genres = ({onSelectGenre, onBack}) => {
 	}, []);
 
 	useEffect(() => {
-		const handleKeyDown = (e) => {
-			if (e.keyCode === 461 || e.keyCode === 27) {
-				if (showSortModal || showLibraryModal) {
-					setShowSortModal(false);
-					setShowLibraryModal(false);
-				} else {
-					onBack?.();
-				}
+		if (!backHandlerRef) return;
+		backHandlerRef.current = () => {
+			if (showSortModal || showLibraryModal) {
+				setShowSortModal(false);
+				setShowLibraryModal(false);
+				return true;
 			}
+			return false;
 		};
-		document.addEventListener('keydown', handleKeyDown);
-		return () => document.removeEventListener('keydown', handleKeyDown);
-	}, [showSortModal, showLibraryModal, onBack]);
+		return () => { if (backHandlerRef) backHandlerRef.current = null; };
+	}, [backHandlerRef, showSortModal, showLibraryModal]);
 
 	const handleSortSelect = useCallback((ev) => {
 		const key = ev.currentTarget?.dataset?.sortKey;
