@@ -126,6 +126,8 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 	const [cast, setCast] = useState([]);
 	const [nextUp, setNextUp] = useState([]);
 	const [collectionItems, setCollectionItems] = useState([]);
+	const [albumTracks, setAlbumTracks] = useState([]);
+	const [artistAlbums, setArtistAlbums] = useState([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [selectedAudioIndex, setSelectedAudioIndex] = useState(0);
 	const [selectedSubtitleIndex, setSelectedSubtitleIndex] = useState(-1);
@@ -145,6 +147,8 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 			setCast([]);
 			setNextUp([]);
 			setCollectionItems([]);
+			setAlbumTracks([]);
+			setArtistAlbums([]);
 			setShowMediaInfo(false);
 
 			try {
@@ -196,7 +200,29 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 					} catch (e) { /* Collection items not available */ }
 				}
 
-				if (data.Type !== 'Person' && data.Type !== 'BoxSet') {
+				if (data.Type === 'MusicAlbum') {
+					try {
+						const tracksData = await effectiveApi.getAlbumTracks(data.Id);
+						setAlbumTracks(tagWithServerInfo(tracksData.Items || []));
+					} catch (e) { /* Album tracks not available */ }
+					try {
+						const similarData = await effectiveApi.getSimilar(itemId);
+						setSimilar(tagWithServerInfo(similarData.Items || []));
+					} catch (e) { /* Similar albums not available */ }
+				}
+
+				if (data.Type === 'MusicArtist') {
+					try {
+						const albumsData = await effectiveApi.getAlbumsByArtist(data.Id);
+						setArtistAlbums(tagWithServerInfo(albumsData.Items || []));
+					} catch (e) { /* Artist albums not available */ }
+					try {
+						const similarData = await effectiveApi.getSimilar(itemId);
+						setSimilar(tagWithServerInfo(similarData.Items || []));
+					} catch (e) { /* Similar artists not available */ }
+				}
+
+				if (data.Type !== 'Person' && data.Type !== 'BoxSet' && data.Type !== 'MusicAlbum' && data.Type !== 'MusicArtist') {
 					try {
 						const similarData = await effectiveApi.getSimilar(itemId);
 						setSimilar(tagWithServerInfo(similarData.Items || []));
@@ -261,10 +287,19 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 				const unwatched = episodes.find(ep => !ep.UserData?.Played);
 				onPlay?.(unwatched || episodes[0], false, {});
 			}
+		} else if (item.Type === 'MusicAlbum') {
+			if (albumTracks.length > 0) {
+				onPlay?.(albumTracks[0], false, {audioPlaylist: albumTracks});
+			}
+		} else if (item.Type === 'MusicArtist') {
+			// Navigate to first album
+			if (artistAlbums.length > 0) {
+				onSelectItem?.(artistAlbums[0]);
+			}
 		} else {
 			onPlay?.(item, false, playbackOptions);
 		}
-	}, [item, episodes, nextUp, seasons, onPlay, onSelectItem, selectedAudioIndex, selectedSubtitleIndex]);
+	}, [item, episodes, nextUp, seasons, albumTracks, artistAlbums, onPlay, onSelectItem, selectedAudioIndex, selectedSubtitleIndex]);
 
 	const handleResume = useCallback(() => {
 		if (!item) return;
@@ -400,6 +435,22 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		}
 	}, [episodes, onSelectItem]);
 
+	const handleTrackPlay = useCallback((ev) => {
+		const trackId = ev.currentTarget.dataset.trackId;
+		const track = albumTracks.find(t => t.Id === trackId);
+		if (track) {
+			onPlay?.(track, false, {audioPlaylist: albumTracks});
+		}
+	}, [albumTracks, onPlay]);
+
+	const handleAlbumSelect = useCallback((ev) => {
+		const albumId = ev.currentTarget.dataset.albumId;
+		const album = artistAlbums.find(a => a.Id === albumId);
+		if (album) {
+			onSelectItem?.(album);
+		}
+	}, [artistAlbums, onSelectItem]);
+
 	const handleCastSelect = useCallback((ev) => {
 		const personId = ev.currentTarget.dataset.personId;
 		if (personId) {
@@ -499,9 +550,10 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		if (ev.keyCode === 40) { // Down arrow
 			ev.preventDefault();
 			ev.stopPropagation();
-			const episodesList = document.querySelector(`.${css.seasonEpisodesList}`);
-			if (episodesList) {
-				const firstSpottable = episodesList.querySelector('.spottable');
+			// Try episode list first (seasons), then track list (albums)
+			const list = document.querySelector(`.${css.seasonEpisodesList}`) || document.querySelector(`.${css.trackList}`);
+			if (list) {
+				const firstSpottable = list.querySelector('.spottable');
 				if (firstSpottable) {
 					Spotlight.focus(firstSpottable);
 				}
@@ -558,6 +610,9 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 	const isSeason = item.Type === 'Season';
 	const isPerson = item.Type === 'Person';
 	const isBoxSet = item.Type === 'BoxSet';
+	const isAlbum = item.Type === 'MusicAlbum';
+	const isMusicArtist = item.Type === 'MusicArtist';
+	const isAudioTrack = item.Type === 'Audio';
 
 	// Poster URL
 	let posterUrl = null;
@@ -991,6 +1046,271 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 								);
 							})}
 						</div>
+					</div>
+				</Scroller>
+			</div>
+		);
+	}
+
+	// === ALBUM DETAIL RENDER ===
+
+	if (isAlbum) {
+		const albumArtist = item.AlbumArtist || item.AlbumArtists?.[0]?.Name || '';
+		const trackCount = albumTracks.length;
+		const totalDuration = albumTracks.reduce((sum, t) => sum + (t.RunTimeTicks || 0), 0);
+
+		return (
+			<div className={css.page}>
+				{renderBackdrop()}
+				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+					<div className={css.content}>
+						<div className={css.seasonDetailHeader}>
+							{posterUrl && (
+								<div className={css.seasonDetailPoster}>
+									<img src={posterUrl} alt="" />
+								</div>
+							)}
+							<div className={css.seasonDetailInfo}>
+								{albumArtist && <span className={css.seasonDetailSeries}>{albumArtist}</span>}
+								<h1 className={css.seasonDetailTitle}>{item.Name}</h1>
+								<span className={css.seasonDetailCount}>
+									{year ? `${year} · ` : ''}{trackCount} Track{trackCount !== 1 ? 's' : ''}
+									{totalDuration > 0 ? ` · ${formatDuration(totalDuration)}` : ''}
+								</span>
+								{genres.length > 0 && (
+									<span className={css.seasonDetailCount}>{genres.join(', ')}</span>
+								)}
+							</div>
+						</div>
+
+						<HorizontalContainer className={css.actionButtons} onKeyDown={handleSeasonButtonKeyDown}>
+							{albumTracks.length > 0 && (
+								<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId="details-primary-btn">
+									<div className={css.btnAction}>
+										<span className={css.btnIcon}>▶</span>
+									</div>
+									<span className={css.btnLabel}>Play</span>
+								</SpottableDiv>
+							)}
+							{albumTracks.length > 1 && (
+								<SpottableDiv className={css.btnWrapper} onClick={handleShuffle}>
+									<div className={css.btnAction}>
+										<svg className={css.btnIcon} viewBox="0 -960 960 960" fill="currentColor">
+											<path d="M560-160v-80h104L537-367l57-57 126 126v-102h80v240H560Zm-344 0-56-56 504-504H560v-80h240v240h-80v-104L216-160Zm151-377L160-744l56-56 207 207-56 56Z"/>
+										</svg>
+									</div>
+									<span className={css.btnLabel}>Shuffle</span>
+								</SpottableDiv>
+							)}
+							<SpottableDiv className={css.btnWrapper} onClick={handleToggleFavorite} spotlightId="details-favorite-btn">
+								<div className={css.btnAction}>
+									<svg className={`${css.btnIcon} ${item.UserData?.IsFavorite ? css.favorited : ''}`} viewBox="0 -960 960 960" fill="currentColor">
+										<path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+									</svg>
+								</div>
+								<span className={css.btnLabel}>{item.UserData?.IsFavorite ? 'Favorited' : 'Favorite'}</span>
+							</SpottableDiv>
+						</HorizontalContainer>
+
+						<div className={css.trackList}>
+							{albumTracks.map((track, idx) => {
+								const trackDuration = track.RunTimeTicks ? formatDuration(track.RunTimeTicks) : '';
+								const isPlayed = track.UserData?.Played;
+								const trackArtist = track.AlbumArtist || track.Artists?.[0] || '';
+								const showArtist = trackArtist && trackArtist !== albumArtist;
+
+								return (
+									<SpottableDiv key={track.Id} className={css.trackItem} data-track-id={track.Id} onClick={handleTrackPlay}>
+										<span className={css.trackNumber}>{track.IndexNumber || idx + 1}</span>
+										<div className={css.trackInfo}>
+											<span className={css.trackTitle}>{track.Name}</span>
+											{showArtist && <span className={css.trackArtist}>{trackArtist}</span>}
+										</div>
+										{isPlayed && (
+											<span className={css.trackPlayed}>
+												<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M21 7L9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/></svg>
+											</span>
+										)}
+										<span className={css.trackDuration}>{trackDuration}</span>
+									</SpottableDiv>
+								);
+							})}
+						</div>
+
+						{item.Overview && (
+							<div className={css.albumOverview}>
+								<p className={css.overview}>{item.Overview}</p>
+							</div>
+						)}
+
+						<div className={css.sectionsContainer}>
+							{similar.length > 0 && (
+								<MediaRow
+									title="More Like This"
+									items={similar}
+									serverUrl={effectiveServerUrl}
+									onSelectItem={onSelectItem}
+									className={css.inlineRow}
+								/>
+							)}
+						</div>
+					</div>
+				</Scroller>
+			</div>
+		);
+	}
+
+	// === ARTIST DETAIL RENDER ===
+
+	if (isMusicArtist) {
+		return (
+			<div className={css.page}>
+				{renderBackdrop()}
+				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+					<div className={css.content}>
+						<div className={css.personHeader}>
+							<div className={css.personPhotoWrapper}>
+								{item.ImageTags?.Primary ? (
+									<img
+										src={getImageUrl(effectiveServerUrl, item.Id, 'Primary', {maxHeight: 450, quality: 90})}
+										className={css.personPhoto}
+										alt=""
+									/>
+								) : (
+									<div className={css.personPhotoPlaceholder}>
+										<svg viewBox="0 -960 960 960" fill="currentColor"><path d="M400-120q-66 0-113-47t-47-113q0-66 47-113t113-47q23 0 42.5 5.5T480-418v-422h240v160H560v400q0 66-47 113t-113 47Z"/></svg>
+									</div>
+								)}
+							</div>
+							<div className={css.personInfo}>
+								<h1 className={css.title}>{item.Name}</h1>
+								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
+								<HorizontalContainer className={css.actionButtons} spotlightId="details-action-buttons">
+									{artistAlbums.length > 0 && (
+										<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId="details-primary-btn">
+											<div className={css.btnAction}>
+												<span className={css.btnIcon}>▶</span>
+											</div>
+											<span className={css.btnLabel}>Play</span>
+										</SpottableDiv>
+									)}
+									<SpottableDiv className={css.btnWrapper} onClick={handleToggleFavorite} spotlightId="details-favorite-btn">
+										<div className={css.btnAction}>
+											<svg className={`${css.btnIcon} ${item.UserData?.IsFavorite ? css.favorited : ''}`} viewBox="0 -960 960 960" fill="currentColor">
+												<path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+											</svg>
+										</div>
+										<span className={css.btnLabel}>{item.UserData?.IsFavorite ? 'Favorited' : 'Favorite'}</span>
+									</SpottableDiv>
+								</HorizontalContainer>
+							</div>
+						</div>
+
+						<div className={css.sectionsContainer}>
+							{artistAlbums.length > 0 && (
+								<RowContainer className={css.section}>
+									<div className={css.sectionHeader}>
+										<h3 className={css.sectionTitle}>Discography ({artistAlbums.length})</h3>
+									</div>
+									<div className={css.sectionScroll} onFocus={handleScrollerFocus}>
+										{artistAlbums.map(album => {
+											const albumPosterUrl = album.ImageTags?.Primary
+												? getImageUrl(effectiveServerUrl, album.Id, 'Primary', {maxHeight: 350, quality: 80})
+												: null;
+
+											return (
+												<SpottableDiv key={album.Id} className={css.seasonCard} data-album-id={album.Id} onClick={handleAlbumSelect}>
+													<div className={css.seasonPosterWrapper}>
+														{albumPosterUrl ? (
+															<img src={albumPosterUrl} alt="" />
+														) : (
+															<div className={css.seasonPosterPlaceholder}>
+																<span>{album.Name}</span>
+															</div>
+														)}
+													</div>
+													<span className={css.seasonName}>{album.Name}</span>
+													{album.ProductionYear && <span className={css.albumYear}>{album.ProductionYear}</span>}
+												</SpottableDiv>
+											);
+										})}
+									</div>
+								</RowContainer>
+							)}
+
+							{similar.length > 0 && (
+								<MediaRow
+									title="Similar Artists"
+									items={similar}
+									serverUrl={effectiveServerUrl}
+									onSelectItem={onSelectItem}
+									className={css.inlineRow}
+								/>
+							)}
+						</div>
+					</div>
+				</Scroller>
+			</div>
+		);
+	}
+
+	// === AUDIO TRACK DETAIL RENDER ===
+
+	if (isAudioTrack) {
+		const trackArtist = item.AlbumArtist || item.Artists?.[0] || '';
+		const albumName = item.Album || '';
+
+		return (
+			<div className={css.page}>
+				{renderBackdrop()}
+				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+					<div className={css.content}>
+						<div className={css.detailsHeader}>
+							<div className={css.infoSection}>
+								{trackArtist && <span className={css.seriesName}>{trackArtist}</span>}
+								<div className={css.titleSection}>
+									<h1 className={css.title}>{item.Name}</h1>
+								</div>
+								<div className={css.infoRow}>
+									<div className={css.infoTextItems}>
+										{albumName && <span className={css.infoItem}>{albumName}</span>}
+										{year && <span className={css.infoItem}>{year}</span>}
+										{runtime && <span className={css.infoItem}>{runtime}</span>}
+									</div>
+								</div>
+								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
+							</div>
+							<div className={css.posterSection}>
+								<div className={css.poster}>
+									{posterUrl ? (
+										<img src={posterUrl} alt="" />
+									) : (
+										<div className={css.posterPlaceholder}>
+											<svg viewBox="0 -960 960 960" fill="currentColor">
+												<path d="M400-120q-66 0-113-47t-47-113q0-66 47-113t113-47q23 0 42.5 5.5T480-418v-422h240v160H560v400q0 66-47 113t-113 47Z"/>
+											</svg>
+										</div>
+									)}
+								</div>
+							</div>
+						</div>
+
+						<HorizontalContainer className={css.actionButtons} spotlightId="details-action-buttons">
+							<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId="details-primary-btn">
+								<div className={css.btnAction}>
+									<span className={css.btnIcon}>▶</span>
+								</div>
+								<span className={css.btnLabel}>Play</span>
+							</SpottableDiv>
+							<SpottableDiv className={css.btnWrapper} onClick={handleToggleFavorite} spotlightId="details-favorite-btn">
+								<div className={css.btnAction}>
+									<svg className={`${css.btnIcon} ${item.UserData?.IsFavorite ? css.favorited : ''}`} viewBox="0 -960 960 960" fill="currentColor">
+										<path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z"/>
+									</svg>
+								</div>
+								<span className={css.btnLabel}>{item.UserData?.IsFavorite ? 'Favorited' : 'Favorite'}</span>
+							</SpottableDiv>
+						</HorizontalContainer>
 					</div>
 				</Scroller>
 			</div>

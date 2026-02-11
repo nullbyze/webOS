@@ -51,6 +51,8 @@ const effectiveServerUrl = useMemo(() => {
 	return library?._serverUrl || serverUrl;
 }, [library, serverUrl]);
 
+const isMusicLibrary = library?.CollectionType?.toLowerCase() === 'music';
+
 const [allItems, setAllItems] = useState([]);
 const [isLoading, setIsLoading] = useState(true);
 const [totalCount, setTotalCount] = useState(0);
@@ -318,7 +320,7 @@ const imageUrl = imageId ? getImageUrl(effectiveServerUrl, imageId, 'Primary', {
 return (
 <SpottableDiv
 {...rest}
-className={css.itemCard}
+className={`${css.itemCard} ${isMusicLibrary ? css.squareCard : ''}`}
 onClick={handleItemClick}
 data-index={index}
 >
@@ -338,7 +340,9 @@ loading="lazy"
 )}
 <div className={css.itemInfo}>
 <div className={css.itemName}>{item.Name}</div>
-{item.ProductionYear && (
+{item.Type === 'MusicAlbum' && item.AlbumArtist ? (
+	<div className={css.itemYear}>{item.AlbumArtist}</div>
+) : item.ProductionYear && (
 <div className={css.itemYear}>{item.ProductionYear}</div>
 )}
 </div>
@@ -419,7 +423,7 @@ spotlightId={index === 0 ? 'library-letter-hash' : undefined}
 className={css.grid}
 dataSize={items.length}
 itemRenderer={renderItem}
-itemSize={{minWidth: 180, minHeight: 340}}
+itemSize={isMusicLibrary ? {minWidth: 180, minHeight: 260} : {minWidth: 180, minHeight: 340}}
 spacing={20}
 onScrollStop={handleScrollStop}
 onKeyDown={handleGridKeyDown}

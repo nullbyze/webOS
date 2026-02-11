@@ -8,6 +8,7 @@ const SpottableDiv = Spottable('div');
 
 const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusItem, showServerBadge = false}) => {
 	const isLandscape = cardType === 'landscape';
+	const isSquare = cardType === 'square' || (cardType === 'portrait' && (item.Type === 'MusicAlbum' || item.Type === 'MusicArtist' || item.Type === 'Audio'));
 	const focusTimeoutRef = useRef(null);
 
 	// Cleanup timeout on unmount
@@ -41,8 +42,13 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 			return getImageUrl(itemServerUrl, item.Id, 'Primary', {maxHeight: 400, quality: 90});
 		}
 
+		// Audio tracks: use parent album art
+		if (item.Type === 'Audio' && item.AlbumId && item.AlbumPrimaryImageTag) {
+			return getImageUrl(itemServerUrl, item.AlbumId, 'Primary', {maxHeight: 400, quality: 90});
+		}
+
 		return null;
-	}, [isLandscape, item.Type, item.ImageTags?.Primary, item.Id, item.ParentThumbItemId, item.ParentBackdropItemId, itemServerUrl]);
+	}, [isLandscape, item.Type, item.ImageTags?.Primary, item.Id, item.ParentThumbItemId, item.ParentBackdropItemId, item.AlbumId, item.AlbumPrimaryImageTag, itemServerUrl]);
 
 	const handleClick = useCallback(() => {
 		onSelect?.(item);
@@ -73,7 +79,17 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 		return null;
 	}, [item.Type, item.ParentIndexNumber, item.IndexNumber, item.Name]);
 
-	const cardClass = `${css.card} ${isLandscape ? css.landscape : css.portrait}`;
+	const musicInfo = useMemo(() => {
+		if (item.Type === 'MusicAlbum') {
+			return item.AlbumArtist || item.AlbumArtists?.[0]?.Name || '';
+		}
+		if (item.Type === 'Audio') {
+			return item.AlbumArtist || item.Artists?.[0] || '';
+		}
+		return null;
+	}, [item.Type, item.AlbumArtist, item.AlbumArtists, item.Artists]);
+
+	const cardClass = `${css.card} ${isLandscape ? css.landscape : isSquare ? css.square : css.portrait}`;
 
 	return (
 		<SpottableDiv className={cardClass} onClick={handleClick} onFocus={handleFocus}>
@@ -100,6 +116,11 @@ const MediaCard = ({item, serverUrl, cardType = 'portrait', onSelect, onFocusIte
 					<>
 						<div className={css.seriesName}>{displayTitle}</div>
 						<div className={css.episodeInfo}>{episodeInfo}</div>
+					</>
+				) : musicInfo ? (
+					<>
+						<div className={css.title}>{displayTitle}</div>
+						<div className={css.episodeInfo}>{musicInfo}</div>
 					</>
 				) : (
 					<div className={css.title}>{displayTitle}</div>

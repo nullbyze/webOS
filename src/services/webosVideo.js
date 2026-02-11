@@ -304,7 +304,19 @@ export const getMimeType = (container) => {
 		vob: 'video/mpeg',
 		dat: 'video/mpeg',
 		asf: 'video/x-ms-asf',
-		wmv: 'video/x-ms-wmv'
+		wmv: 'video/x-ms-wmv',
+		// Audio formats
+		mp3: 'audio/mpeg',
+		flac: 'audio/flac',
+		aac: 'audio/aac',
+		m4a: 'audio/mp4',
+		m4b: 'audio/mp4',
+		ogg: 'audio/ogg',
+		oga: 'audio/ogg',
+		opus: 'audio/ogg',
+		wav: 'audio/wav',
+		wma: 'audio/x-ms-wma',
+		webma: 'audio/webm'
 	};
 	return mimeTypes[container?.toLowerCase()] || 'video/mp4';
 };

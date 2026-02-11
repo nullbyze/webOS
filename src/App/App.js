@@ -42,7 +42,7 @@ const JellyseerrPerson = lazy(() => import('../views/JellyseerrPerson'));
 import css from './App.module.less';
 
 const MAX_HISTORY_LENGTH = 10;
-const EXCLUDED_COLLECTION_TYPES = ['playlists', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
+const EXCLUDED_COLLECTION_TYPES = ['playlists', 'books', 'musicvideos', 'homevideos', 'photos'];
 
 const PanelLoader = () => (
 	<div className={css.panelLoader}>
@@ -591,6 +591,7 @@ const AppContent = (props) => {
 								resume={isResume}
 								initialAudioIndex={playbackOptions?.audioStreamIndex}
 								initialSubtitleIndex={playbackOptions?.subtitleStreamIndex}
+								audioPlaylist={playbackOptions?.audioPlaylist}
 								onEnded={handlePlayerEnd}
 								onBack={handlePlayerEnd}
 								onPlayNext={handlePlayNext}

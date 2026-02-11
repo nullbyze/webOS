@@ -32,7 +32,7 @@ let cacheTimestamp = null;
 
 let lastFocusState = null;
 
-const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'music', 'musicvideos', 'homevideos', 'photos'];
+const EXCLUDED_COLLECTION_TYPES = ['playlists', 'livetv', 'boxsets', 'books', 'musicvideos', 'homevideos', 'photos'];
 
 const SpottableDiv = Spottable('div');
 const SpottableButton = Spottable('button');
@@ -635,7 +635,7 @@ const Browse = ({
 							title: `Latest in ${libraryTitle}`,
 							items: result.latest,
 							library: result.lib,
-							type: 'portrait',
+							type: result.lib.CollectionType?.toLowerCase() === 'music' ? 'square' : 'portrait',
 							isLatestRow: true
 						});
 					}

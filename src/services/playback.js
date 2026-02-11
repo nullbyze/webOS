@@ -137,11 +137,12 @@ const determinePlayMethod = (mediaSource, capabilities, options = {}) => {
 	return PlayMethod.Transcode;
 };
 
-const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod, credentials = null) => {
+const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod, credentials = null, isAudio = false) => {
 	const serverUrl = credentials?.serverUrl || jellyfinApi.getServerUrl();
 	const apiKey = credentials?.accessToken || jellyfinApi.getApiKey();
 	const deviceId = jellyfinApi.getDeviceId();
 	const container = (mediaSource.Container || '').toLowerCase();
+	const streamType = isAudio ? 'Audio' : 'Videos';
 
 	console.log('[playback] buildPlaybackUrl:', {
 		itemId,
@@ -152,7 +153,8 @@ const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod, creden
 		serverUrl,
 		apiKeyType: typeof apiKey,
 		apiKeyLength: apiKey?.length,
-		isCrossServer: !!credentials
+		isCrossServer: !!credentials,
+		isAudio
 	});
 
 	if (playMethod === PlayMethod.DirectPlay) {
@@ -170,7 +172,7 @@ const buildPlaybackUrl = (itemId, mediaSource, playSessionId, playMethod, creden
 			params.append('LiveStreamId', mediaSource.LiveStreamId);
 		}
 		// Include container extension for proper MIME type detection
-		const url = `${serverUrl}/Videos/${itemId}/stream.${container}?${params.toString()}`;
+		const url = `${serverUrl}/${streamType}/${itemId}/stream.${container}?${params.toString()}`;
 		console.log('[playback] DirectPlay URL:', url);
 		return url;
 	}
@@ -393,7 +395,8 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 		console.log('[playback] After forcing transcode - TranscodingUrl:', mediaSource.TranscodingUrl ? 'present' : 'none');
 	}
 
-	const url = buildPlaybackUrl(itemId, mediaSource, playbackInfo.PlaySessionId, playMethod, creds);
+	const isAudio = options.item?.MediaType === 'Audio' || options.item?.Type === 'Audio';
+	const url = buildPlaybackUrl(itemId, mediaSource, playbackInfo.PlaySessionId, playMethod, creds, isAudio);
 
 	const audioStreams = extractAudioStreams(mediaSource);
 	const subtitleStreams = extractSubtitleStreams(mediaSource);
@@ -421,6 +424,8 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 			mimeType = 'application/x-mpegURL';
 		} else if (url.includes('.ts') || mediaSource.TranscodingContainer === 'ts') {
 			mimeType = 'video/mp2t';
+		} else if (isAudio) {
+			mimeType = getMimeType(mediaSource.TranscodingContainer || 'mp3');
 		} else {
 			mimeType = 'video/mp4';
 		}
@@ -435,6 +440,7 @@ export const getPlaybackInfo = async (itemId, options = {}) => {
 		mediaSource,
 		playMethod,
 		mimeType,
+		isAudio,
 		runTimeTicks: mediaSource.RunTimeTicks,
 		audioStreams,
 		subtitleStreams,
