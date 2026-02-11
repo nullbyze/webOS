@@ -9,6 +9,7 @@ import {useSettings} from '../../context/SettingsContext';
 import * as jellyfinApi from '../../services/jellyfinApi';
 import MediaRow from '../../components/MediaRow';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import RatingsRow from '../../components/RatingsRow';
 import {formatDuration, getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
 
 import css from './Details.module.less';
@@ -914,6 +915,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 									)}
 									{birthPlace && <span className={css.infoItem}>{birthPlace}</span>}
 								</div>
+								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
 							</div>
 						</div>
@@ -964,6 +966,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 								<span className={css.seasonDetailCount}>
 									{episodes.length} Episode{episodes.length !== 1 ? 's' : ''}
 								</span>
+								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 							</div>
 						</div>
 
@@ -1080,6 +1083,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 								{genres.length > 0 && (
 									<span className={css.seasonDetailCount}>{genres.join(', ')}</span>
 								)}
+								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 							</div>
 						</div>
 
@@ -1184,6 +1188,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 							</div>
 							<div className={css.personInfo}>
 								<h1 className={css.title}>{item.Name}</h1>
+								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
 								<HorizontalContainer className={css.actionButtons} spotlightId="details-action-buttons">
 									{artistAlbums.length > 0 && (
@@ -1278,6 +1283,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 										{runtime && <span className={css.infoItem}>{runtime}</span>}
 									</div>
 								</div>
+								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
 							</div>
 							<div className={css.posterSection}>
@@ -1383,6 +1389,9 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 									</div>
 								)}
 							</div>
+
+							{/* MDBList Ratings */}
+							{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 
 							{/* Tagline */}
 							{tagline && <p className={css.tagline}>&ldquo;{tagline}&rdquo;</p>}

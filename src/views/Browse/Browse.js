@@ -8,6 +8,7 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 import {getImageUrl, getBackdropId, getLogoUrl} from '../../utils/helpers';
 import {getFromStorage, saveToStorage} from '../../services/storage';
 import * as connectionPool from '../../services/connectionPool';
+import RatingsRow from '../../components/RatingsRow';
 
 import css from './Browse.module.less';
 
@@ -858,7 +859,9 @@ const Browse = ({
 		}
 		focusItemTimeoutRef.current = setTimeout(() => {
 			setFocusedItem(item);
-			if (!item.BackdropImageTags?.length && !item.ParentBackdropImageTags?.length) {
+			const needsBackdrop = !item.BackdropImageTags?.length && !item.ParentBackdropImageTags?.length;
+			const needsProviderIds = !item.ProviderIds;
+			if (needsBackdrop || needsProviderIds) {
 				api.getItem(item.Id).then(fullItem => {
 					setFocusedItem(fullItem);
 				}).catch(() => {});
@@ -1007,6 +1010,9 @@ const Browse = ({
 											<span key={i} className={css.metaItem}>{g}</span>
 										))}
 									</div>
+									{settings.useMoonfinPlugin && (
+										<RatingsRow item={currentFeatured} serverUrl={getItemServerUrl(currentFeatured)} compact />
+									)}
 									<p className={css.featuredOverview}>
 										{currentFeatured.Overview || 'No description available.'}
 									</p>
@@ -1063,6 +1069,9 @@ const Browse = ({
 									<span key={i} className={css.infoBadge}>{g}</span>
 								))}
 							</div>
+							{settings.useMoonfinPlugin && (
+								<RatingsRow item={focusedItem} serverUrl={getItemServerUrl(focusedItem)} compact />
+							)}
 							<p className={css.detailSummary}>
 								{focusedItem.Overview || 'No description available.'}
 							</p>
