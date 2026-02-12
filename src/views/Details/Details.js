@@ -137,6 +137,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 
 	// Refs
 	const pageScrollerRef = useRef(null);
+	const pageScrollToRef = useRef(null);
 
 	// Data loading
 	useEffect(() => {
@@ -470,7 +471,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return () => { if (backHandlerRef) backHandlerRef.current = null; };
 	}, [backHandlerRef, activeModal, showMediaInfo, closeModal]);
 
-	const handleSectionKeyDown = useCallback((ev) => {
+const handleSectionKeyDown = useCallback((ev) => {
 		const currentSpottable = ev.target.closest('.spottable');
 		if (!currentSpottable) return;
 
@@ -492,7 +493,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 			const container = currentSpottable.closest(`.${css.sectionsContainer}`);
 			if (!container) return;
 
-			const currentRow = currentSpottable.closest(`.${css.section}`) || currentSpottable.closest('[data-row-index]');
+			const currentRow = currentSpottable.closest(`.${css.section}`) || currentSpottable.closest('[data-row-index]') || currentSpottable.closest(`.${css.inlineRow}`);
 			if (!currentRow) return;
 
 			const allRows = Array.from(container.children);
@@ -563,10 +564,15 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 	}, []);
 
 	const handleButtonRowFocus = useCallback(() => {
-		const scroller = pageScrollerRef.current;
-		if (scroller && scroller.scrollTo) {
-			scroller.scrollTo({position: {y: 0}, animate: true});
+		if (pageScrollToRef.current) {
+			pageScrollToRef.current({position: {y: 0}, animate: true});
+		} else if (pageScrollerRef.current && pageScrollerRef.current.scrollTo) {
+			pageScrollerRef.current.scrollTo({position: {y: 0}, animate: true});
 		}
+	}, []);
+
+	const handlePageScrollTo = useCallback((fn) => {
+		pageScrollToRef.current = fn;
 	}, []);
 
 	const handleScrollerFocus = useCallback((e) => {
@@ -748,7 +754,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 	};
 
 	const renderActionButtons = (showPlayButtons = true) => (
-		<HorizontalContainer className={css.actionButtons} onKeyDown={handleButtonRowKeyDown} spotlightId="details-action-buttons">
+		<HorizontalContainer className={css.actionButtons} onKeyDown={handleButtonRowKeyDown} onFocus={handleButtonRowFocus} spotlightId="details-action-buttons">
 			{showPlayButtons && hasPlaybackPosition && (
 				<SpottableDiv className={css.btnWrapper} onClick={handleResume} spotlightId="details-primary-btn">
 					<div className={css.btnAction}>
@@ -888,7 +894,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return (
 			<div className={css.page}>
 				{renderBackdrop()}
-				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+				<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 					<div className={css.content}>
 						<div className={css.personHeader}>
 							<div className={css.personPhotoWrapper}>
@@ -952,7 +958,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return (
 			<div className={css.page}>
 				{renderBackdrop()}
-				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+				<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 					<div className={css.content}>
 						<div className={css.seasonDetailHeader}>
 							{posterUrl && (
@@ -971,7 +977,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 						</div>
 
 						{episodes.length > 0 && (
-							<HorizontalContainer className={css.actionButtons} onKeyDown={handleSeasonButtonKeyDown}>
+							<HorizontalContainer className={css.actionButtons} onKeyDown={handleSeasonButtonKeyDown} onFocus={handleButtonRowFocus}>
 								<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId="details-primary-btn">
 									<div className={css.btnAction}>
 										<span className={css.btnIcon}>▶</span>
@@ -1065,7 +1071,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return (
 			<div className={css.page}>
 				{renderBackdrop()}
-				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+				<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 					<div className={css.content}>
 						<div className={css.seasonDetailHeader}>
 							{posterUrl && (
@@ -1087,7 +1093,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 							</div>
 						</div>
 
-						<HorizontalContainer className={css.actionButtons} onKeyDown={handleSeasonButtonKeyDown}>
+						<HorizontalContainer className={css.actionButtons} onKeyDown={handleSeasonButtonKeyDown} onFocus={handleButtonRowFocus}>
 							{albumTracks.length > 0 && (
 								<SpottableDiv className={css.btnWrapper} onClick={handlePlay} onFocus={handleButtonRowFocus} spotlightId="details-primary-btn">
 									<div className={css.btnAction}>
@@ -1170,7 +1176,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return (
 			<div className={css.page}>
 				{renderBackdrop()}
-				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+				<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 					<div className={css.content}>
 						<div className={css.personHeader}>
 							<div className={css.personPhotoWrapper}>
@@ -1268,7 +1274,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		return (
 			<div className={css.page}>
 				{renderBackdrop()}
-				<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+				<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 					<div className={css.content}>
 						<div className={css.detailsHeader}>
 							<div className={css.infoSection}>
@@ -1282,8 +1288,8 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 										{year && <span className={css.infoItem}>{year}</span>}
 										{runtime && <span className={css.infoItem}>{runtime}</span>}
 									</div>
+									{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 								</div>
-								{settings.useMoonfinPlugin && <RatingsRow item={item} serverUrl={effectiveServerUrl} />}
 								{item.Overview && <p className={css.overview}>{item.Overview}</p>}
 							</div>
 							<div className={css.posterSection}>
@@ -1329,7 +1335,7 @@ const Details = ({itemId, initialItem, onPlay, onSelectItem, onSelectPerson, bac
 		<div className={css.page}>
 			{renderBackdrop()}
 
-			<Scroller ref={pageScrollerRef} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
+			<Scroller ref={pageScrollerRef} cbScrollTo={handlePageScrollTo} className={css.scroller} direction="vertical" horizontalScrollbar="hidden" verticalScrollbar="hidden">
 				<div className={css.content}>
 					{/* Header: info + poster */}
 					<div className={css.detailsHeader}>
